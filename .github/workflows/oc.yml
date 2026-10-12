@@ -29,9 +29,9 @@ on:
         description: 'OpenCode output format (execute mode)'
         type: choice
         options:
-          - text
+          - default
           - json
-        default: text
+        default: default
       opencode_version:
         description: 'Pinned OpenCode V2 version'
         required: true
