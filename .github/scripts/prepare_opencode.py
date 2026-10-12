@@ -45,7 +45,7 @@ def prepare(env, destination):
     model = env.get("INPUT_MODEL", "opencode/big-pickle")
     agent = env.get("INPUT_AGENT", "build")
     mode = env.get("INPUT_RUN_MODE", "execute")
-    fmt = env.get("INPUT_OUTPUT_FORMAT", "text")
+    fmt = env.get("INPUT_OUTPUT_FORMAT", "default")
     if not re.fullmatch(r"2\.[0-9]+\.[0-9]+", version):
         raise ValueError("OpenCode version must be pinned to a stable v2.x.y release")
     if model not in FREE_MODELS:
@@ -54,7 +54,7 @@ def prepare(env, destination):
         raise ValueError("Invalid agent name")
     if mode not in ("config-only", "execute"):
         raise ValueError("Invalid run mode")
-    if fmt not in ("text", "json"):
+    if fmt not in ("default", "json"):
         raise ValueError("Invalid output format")
     raw = env.get("INPUT_CONFIG_JSON", "{}") or "{}"
     if len(raw) > 60000:
