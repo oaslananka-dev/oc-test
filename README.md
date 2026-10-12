@@ -1,60 +1,52 @@
-# OpenCode V2 Parametric Runner
+# OpenCode V2 — free-model GitHub Actions runner
 
-This repository tests externally dispatched OpenCode V2 tasks on GitHub Actions.
+Runs OpenCode on Ubuntu through externally supplied GitHub Actions parameters. Default: **`opencode/big-pickle`**, **`build`**, **`execute`**. No provider API keys are passed to the workflow.
 
-## Use the Actions UI
+## First test
 
-Open **Actions → OpenCode V2 Parametric Runner → Run workflow**.
+Open [Actions → OpenCode V2 Parametric Runner](https://github.com/oaslananka-dev/oc-test/actions/workflows/oc.yml), select **Run workflow**, keep `model=opencode/big-pickle`, `agent=build`, `run_mode=execute`, and enter a harmless prompt such as:
 
-- `run_mode=config-only`: installs OpenCode and checks configuration without running an LLM task or needing an API key.
-- `run_mode=execute`: calls the selected provider and executes the specified task; requires provider credentials as GitHub Actions secrets.
-- `model`: e.g. `anthropic/claude-sonnet-4-5`.
-- `agent`: `ci-review`, `ci-implement`, `build`, or a custom agent defined in `config_json`.
-- `config_json`: additional OpenCode V2 JSON for agent definitions, skills, plugins, MCP servers and policies. Trusted sources only.
+`Read README.md and report its title. Do not edit any files.`
 
-## External trigger (GitHub CLI)
+Or trigger externally:
 
 ```bash
-gh workflow run oc.yml --repo oaslananka-dev/oc-test --ref main \
-  -f run_mode=config-only \
-  -f model=anthropic/claude-sonnet-4-5 \
-  -f agent=ci-review \
-  -f task='Inspect repo structure' \
+gh workflow run oc.yml -R oaslananka-dev/oc-test --ref main \
+  -f model=opencode/big-pickle \
+  -f agent=build \
+  -f run_mode=execute \
+  -f task='Read README.md and report its title. Do not edit any files.' \
   -f config_json='{}'
-gh run list --repo oaslananka-dev/oc-test --workflow oc.yml
 ```
 
-For real model execution, configure the matching GitHub Actions secret (e.g. `ANTHROPIC_API_KEY`), then change `run_mode` to `execute` and task to:
-`Use runner-check to list repo files and explain how the skill was loaded.`
+`config-only` validates configuration without querying a model. `execute` contacts OpenCode Console and **may fail without authentication**, even if the listed model is free. An account login / free model access policy is distinct from API pricing. The runner never switches to a paid model. Do not add a paid-provider API key as a workaround.
 
-To test local code edits, choose `ci-implement` and send:
-`Create hello.txt containing OpenCode works and describe the diff. Never push.`
-The runner does **not** push or merge. Changes and stdout are uploaded as an Actions artifact.
+## Parameters
 
-### Sample config_json
+- `task`: untrusted task text (never include secrets)
+- `model`: exact zero-price OpenCode Console model ID, e.g. `opencode/big-pickle`, `opencode/nemotron-3-ultra-free`, `opencode/ling-3.1-flash-free`
+- `agent`: built-in `build` or `plan`; custom agents must be defined in `config_json.agents`
+- `run_mode`: `config-only` / `execute`
+- `output_format`: `text` / `json`
+- `opencode_version`: pinned stable v2 release
+- `config_json`: trusted JSON configuration for agents, skills, plugins, MCP and permissions
+
+Example custom agent overlay:
 
 ```json
 {
   "agents": {
     "tester": {
       "mode": "primary",
-      "system": "Check the supplied integrations and report results."
+      "system": "Inspect the checkout, run a minimal test, and report the result. Never push."
     }
   },
-  "skills": ["./.opencode/skills"],
-  "plugins": ["TRUSTED_PLUGIN@1.2.3"],
-  "mcp": {
-    "servers": {
-      "docs": {
-        "type": "remote",
-        "url": "https://YOUR-MCP-ENDPOINT/mcp",
-        "oauth": false
-      }
-    }
-  }
+  "skills": ["./.opencode/skills"]
 }
 ```
 
-This is illustrative only: replace the plugin and endpoint with trusted sources and select `agent=tester`. Do not place secrets in inputs. Use GitHub Actions secrets for provider keys. `config-only` does not prove that remote servers or models are reachable. Skills/plugins/MCP may execute third-party code; this workflow must be dispatched only by authorized parties.
+Set `agent=tester`. The example skill is in `.opencode/skills/runner-check/SKILL.md`.
 
-Official docs: https://opencode.ai/v2/docs/
+Results: Actions logs and `opencode-v2-<run_id>` artifact. The checkout token is read-only and not persisted; this is an ephemeral sandbox, with no automatic push or merge. However, an authorized dispatcher can supply external plugins/MCP endpoints that execute code, so do not expose workflow dispatch to untrusted parties.
+
+Reference: https://opencode.ai/v2/docs/console/models/ and https://opencode.ai/v2/docs/
