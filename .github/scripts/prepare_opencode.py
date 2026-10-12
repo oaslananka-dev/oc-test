@@ -24,7 +24,7 @@ FREE_MODELS = frozenset({
 })
 ALLOWED_OVERRIDES = frozenset({
     "agents", "skills", "plugins", "mcp", "permissions", "commands",
-    "compaction", "formatter", "references", "tools", "snapshots",
+    "formatter", "tools",
 })
 
 def validate_models(obj, where="config_json"):
@@ -83,11 +83,6 @@ def prepare(env, destination):
         "$schema": "https://opencode.ai/config.json",
         "model": model,
         "default_agent": agent,
-        # Enforce OpenCode-only access even when the model tries other providers.
-        "experimental": {"policies": [
-            {"action": "provider.use", "resource": "*", "effect": "deny"},
-            {"action": "provider.use", "resource": "opencode", "effect": "allow"},
-        ]},
         **overlay,
     }
     destination.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
