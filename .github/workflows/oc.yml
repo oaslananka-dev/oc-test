@@ -9,22 +9,22 @@ on:
         type: string
         default: 'Inspect the repository and explain its structure. Do not edit any files.'
       model:
-        description: 'Provider/model, e.g. anthropic/claude-sonnet-4-5'
+        description: 'Free OpenCode Console model ID (opencode/big-pickle)'
         required: true
         type: string
-        default: 'anthropic/claude-sonnet-4-5'
+        default: 'opencode/big-pickle'
       agent:
-        description: 'ci-review, ci-implement, build, or a custom agent in config_json'
+        description: 'build, plan, or a custom agent from config_json'
         required: true
         type: string
-        default: 'ci-review'
+        default: 'build'
       run_mode:
         description: 'config-only needs no LLM API key; execute runs the agent'
         type: choice
         options:
           - config-only
           - execute
-        default: config-only
+        default: execute
       output_format:
         description: 'OpenCode output format (execute mode)'
         type: choice
@@ -95,11 +95,6 @@ jobs:
       - name: Execute requested task
         if: inputs.run_mode == 'execute'
         shell: bash
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/oc-test-results"
