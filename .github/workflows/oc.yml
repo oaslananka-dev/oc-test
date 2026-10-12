@@ -1,0 +1,142 @@
+name: OpenCode V2 Parametric Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Task/prompt for OpenCode (do not put secrets here)'
+        required: true
+        type: string
+        default: 'Inspect the repository and explain its structure. Do not edit any files.'
+      model:
+        description: 'Provider/model, e.g. anthropic/claude-sonnet-4-5'
+        required: true
+        type: string
+        default: 'anthropic/claude-sonnet-4-5'
+      agent:
+        description: 'ci-review, ci-implement, build, or a custom agent in config_json'
+        required: true
+        type: string
+        default: 'ci-review'
+      run_mode:
+        description: 'config-only needs no LLM API key; execute runs the agent'
+        type: choice
+        options:
+          - config-only
+          - execute
+        default: config-only
+      output_format:
+        description: 'OpenCode output format (execute mode)'
+        type: choice
+        options:
+          - text
+          - json
+        default: text
+      opencode_version:
+        description: 'Pinned OpenCode V2 version'
+        required: true
+        type: string
+        default: '2.0.27'
+      config_json:
+        description: 'Optional OpenCode V2 JSON overlay: agents, skills, plugins, mcp, permissions, etc.'
+        required: false
+        type: string
+        default: '{}'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oc-test-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      INPUT_TASK: ${{ inputs.task }}
+      INPUT_MODEL: ${{ inputs.model }}
+      INPUT_AGENT: ${{ inputs.agent }}
+      INPUT_RUN_MODE: ${{ inputs.run_mode }}
+      INPUT_OUTPUT_FORMAT: ${{ inputs.output_format }}
+      INPUT_OPENCODE_VERSION: ${{ inputs.opencode_version }}
+      INPUT_CONFIG_JSON: ${{ inputs.config_json }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Configure Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate inputs and generate OpenCode V2 config
+        run: python3 .github/scripts/prepare_opencode.py
+
+      - name: Install pinned OpenCode V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global "@opencode/cli@${INPUT_OPENCODE_VERSION}"
+          opencode --version
+
+      - name: Validate resolved configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Do not print config: arbitrary overlays may include sensitive values.
+          opencode debug config > "$RUNNER_TEMP/opencode-resolved.txt"
+          echo 'OpenCode accepted the configuration.'
+
+      - name: Execute requested task
+        if: inputs.run_mode == 'execute'
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oc-test-results"
+          opencode run \
+            --standalone \
+            --model "$INPUT_MODEL" \
+            --agent "$INPUT_AGENT" \
+            --format "$INPUT_OUTPUT_FORMAT" \
+            "$INPUT_TASK" | tee "$RUNNER_TEMP/oc-test-results/agent-output.log"
+
+      - name: Collect diff and run summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/oc-test-results"
+          git status --short > "$RUNNER_TEMP/oc-test-results/git-status.txt"
+          # Include newly created files in the patch without staging real content.
+          # Exclude the generated config (which may contain integration settings).
+          git add -N -A -- . ':!opencode.json'
+          git diff --no-ext-diff --binary -- . ':!opencode.json' > "$RUNNER_TEMP/oc-test-results/changes.patch"
+          {
+            echo '## OpenCode V2 runner'
+            echo "- Run mode: \x60$INPUT_RUN_MODE\x60"
+            echo "- Model: \x60$INPUT_MODEL\x60"
+            echo "- Agent: \x60$INPUT_AGENT\x60"
+            echo "- OpenCode version: \x60$INPUT_OPENCODE_VERSION\x60"
+            echo '- Checkout credentials are not persisted; workflow token has read-only repository permissions.'
+            echo '- Changes are local to the ephemeral runner (no push or merge).'
+            echo '- Download the artifact for agent output and diff when execute mode was selected.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-v2-${{ github.run_id }}
+          path: ${{ runner.temp }}/oc-test-results/
+          if-no-files-found: warn
+          retention-days: 7
