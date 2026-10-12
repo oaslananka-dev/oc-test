@@ -27,7 +27,7 @@ gh workflow run oc.yml -R oaslananka-dev/oc-test --ref main \
 - `model`: exact zero-price OpenCode Console model ID, e.g. `opencode/big-pickle`, `opencode/nemotron-3-ultra-free`, `opencode/ling-3.1-flash-free`
 - `agent`: built-in `build` or `plan`; custom agents must be defined in `config_json.agents`
 - `run_mode`: `config-only` / `execute`
-- `output_format`: `text` / `json`
+- `output_format`: `default` / `json` (OpenCode v2 CLI accepts `default` instead of `text`)
 - `opencode_version`: pinned stable v2 release
 - `config_json`: trusted JSON configuration for agents, skills, plugins, MCP and permissions
 
