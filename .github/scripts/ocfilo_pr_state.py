@@ -188,6 +188,18 @@ def decide(snapshot, ledger=None):
         return result
 
     if failed:
+        # Only an F1 allowlisted, publisher-verified quality check is a
+        # repair authorization. Nonrequired checks and legacy commit statuses
+        # can block merge, but must NEVER trigger an autonomous repair worker.
+        # A mixed trusted/untrusted failure also requires manual triage.
+        nonrepairable = sorted(failed - REQUIRED)
+        if nonrepairable:
+            result.update(
+                state="NEEDS_HUMAN",
+                reason="Untrusted/non-F1 failing checks require manual triage; "
+                       "no automated repair dispatch",
+            )
+            return result
         signature = {"repo": REPO, "pr": number, "sha": sha, "checks": sorted(failed)}
         key = digest(signature)
         result["repair_key"] = key
