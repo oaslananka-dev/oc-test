@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/scripts/ocfilo_batch.py'
       - '.github/scripts/test_ocfilo_batch.py'
+      - '.github/scripts/test_ocfilo_worker_scope.py'
       - '.github/scripts/ocfilo_worker.py'
       - '.github/workflows/ocfilo-parallel-tests.yml'
 permissions:
@@ -19,3 +20,5 @@ jobs:
           persist-credentials: false
       - name: Verify parallel task isolation rules
         run: python3 .github/scripts/test_ocfilo_batch.py -v
+      - name: Verify exact file ownership on patch gate
+        run: python3 .github/scripts/test_ocfilo_worker_scope.py -v
