@@ -1,0 +1,75 @@
+name: ocfilo F2 Plan-Only Orchestration Regression
+
+on:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_f2_plan.py'
+      - '.github/scripts/test_ocfilo_f2_plan.py'
+      - 'examples/ocfilo-f2-ten-task-plan.json'
+      - '.github/workflows/ocfilo-f2-plan-tests.yml'
+      - 'docs/ocfilo-f2.md'
+  workflow_dispatch:
+    inputs:
+      plan_json:
+        description: 'Optional plan-only JSON (no secrets); blank uses checked-in example'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Offline DAG and security regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/test_ocfilo_f2_plan.py
+      - name: Produce NO-DISPATCH plan summary
+        shell: bash
+        env:
+          F2_PLAN_JSON: ${{ inputs.plan_json }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f2-preview"
+          plan="examples/ocfilo-f2-ten-task-plan.json"
+          if [ -n "$F2_PLAN_JSON" ]; then
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          Path(os.environ["RUNNER_TEMP"], "f2-input.json").write_text(
+              os.environ["F2_PLAN_JSON"], encoding="utf-8"
+          )
+          PY
+            plan="$RUNNER_TEMP/f2-input.json"
+          fi
+          python3 .github/scripts/ocfilo_f2_plan.py \
+            --input "$plan" --output "$RUNNER_TEMP/f2-preview/plan-summary.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          info=json.loads(Path(os.environ["RUNNER_TEMP"], "f2-preview", "plan-summary.json").read_text())
+          assert info["run_mode"] == "plan-only"
+          assert info["dispatch_allowed"] is False
+          assert info["execution_authorized"] is False
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write("## ocfilo F2 plan-only\n")
+              fh.write("- Tasks: %d; waves: %d\n" % (info["task_count"],info["wave_count"]))
+              fh.write("- Worker dispatch: DISABLED\n")
+              fh.write("- No OpenCode execution, webhook, merge or deploy\n")
+          PY
+      - name: Upload non-executing plan summary
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocfilo-f2-plan-${{ github.run_id }}
+          path: ${{ runner.temp }}/f2-preview/plan-summary.json
+          retention-days: 7
+          if-no-files-found: error

@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "plan_id": "f2-pilot",
+  "repository": "oaslananka-dev/oc-test",
+  "run_mode": "plan-only",
+  "max_parallel": 10,
+  "tasks": [
+    {
+      "task_id": "f2-pilot-audit",
+      "prompt": "Inspect current repo and write scope findings",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "runner-check",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/audit.txt"
+      ],
+      "depends_on": []
+    },
+    {
+      "task_id": "f2-pilot-backend",
+      "prompt": "Review backend and propose scoped changes",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/backend.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-audit"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-frontend",
+      "prompt": "Review frontend and propose scoped changes",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/frontend.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-audit"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-security",
+      "prompt": "Report security concerns without changing permissions",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "runner-check",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/security.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-audit"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-tests",
+      "prompt": "Draft independent tests for two scoped changes",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/tests.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-backend",
+        "f2-pilot-frontend"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-docs",
+      "prompt": "Document interface decisions and user workflows",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/docs.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-frontend"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-database",
+      "prompt": "Review data models and document schema considerations",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "runner-check",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/database.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-audit"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-qa",
+      "prompt": "Validate test matrix and quality expectations",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/qa.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-tests",
+        "f2-pilot-security"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-integration",
+      "prompt": "Summarize integration readiness from completed tasks",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/integration.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-qa",
+        "f2-pilot-docs",
+        "f2-pilot-database"
+      ]
+    },
+    {
+      "task_id": "f2-pilot-review",
+      "prompt": "Perform final review and produce non-deploying summary",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "runner-check",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/review.txt"
+      ],
+      "depends_on": [
+        "f2-pilot-integration"
+      ]
+    }
+  ]
+}
