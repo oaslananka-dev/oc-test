@@ -13,9 +13,9 @@ def snapshot():
                "head": {"sha": SHA, "ref": "ocfilo/f1-test", "repo": {"full_name": "oaslananka-dev/oc-test"}},
                "base": {"ref": "main", "repo": {"full_name": "oaslananka-dev/oc-test"}}},
         "checks": {"total_count": 3, "check_runs": [
-            {"name": "fixture-quality", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions"},
-            {"name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "semgrep-code-oaslananka"},
-            {"name": "baseline", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions"}]},
+            {"id": 101, "name": "fixture-quality", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions", "app_id": 15368},
+            {"id": 102, "name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "semgrep-code-oaslananka", "app_id": 4384945},
+            {"id": 103, "name": "baseline", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions", "app_id": 15368}]},
         "statuses": {"statuses": []},
         "reviews": [], "issue_comments": [], "review_comments": [],
     }
@@ -38,6 +38,41 @@ class Tests(unittest.TestCase):
         d=decide(s)
         self.assertEqual(d["state"],"WAITING_CHECKS")
         self.assertIn("fixture-quality",d["missing_checks"])
+    def test_baseline_spoofed_numeric_app_id_rejected(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["app_id"]=9
+        decision=decide(s)
+        self.assertEqual(decision["state"],"WAITING_CHECKS")
+        self.assertIn("baseline",decision["missing_checks"])
+        self.assertFalse(decision["dispatch_allowed"])
+    def test_fixture_quality_spoofed_numeric_app_id_rejected(self):
+        s=snapshot()
+        s["checks"]["check_runs"][0]["app_id"]=9
+        decision=decide(s)
+        self.assertEqual(decision["state"],"WAITING_CHECKS")
+        self.assertIn("fixture-quality",decision["missing_checks"])
+        self.assertFalse(decision["dispatch_allowed"])
+    def test_semgrep_spoofed_numeric_app_id_rejected(self):
+        s=snapshot()
+        s["checks"]["check_runs"][1]["app_id"]=9
+        decision=decide(s)
+        self.assertEqual(decision["state"],"WAITING_CHECKS")
+        self.assertIn("semgrep-cloud-platform/scan",decision["missing_checks"])
+    def test_missing_numeric_app_id_fails_closed(self):
+        s=snapshot()
+        del s["checks"]["check_runs"][0]["app_id"]
+        decision=decide(s)
+        self.assertEqual(decision["state"],"WAITING_CHECKS")
+        self.assertFalse(decision["dispatch_allowed"])
+    def test_wrong_type_numeric_app_id_fails_closed(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["app_id"]=str(15368)
+        self.assertEqual(decide(s)["state"],"WAITING_CHECKS")
+    def test_structured_github_app_object_accepted(self):
+        s=snapshot()
+        check=s["checks"]["check_runs"][2]
+        check["app"]={"slug":check.pop("app_slug"),"id":check.pop("app_id")}
+        self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
     def test_required_check_app_missing_is_not_trusted(self):
         s=snapshot()
         del s["checks"]["check_runs"][1]["app_slug"]

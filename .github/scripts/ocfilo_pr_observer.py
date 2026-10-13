@@ -75,7 +75,8 @@ def collect(pr_number, expected_sha=None):
         "checks": {"total_count": checks["total_count"], "check_runs": [
             {"id": z["id"], "name": z["name"], "head_sha": z["head_sha"],
              "status": z["status"], "conclusion": z["conclusion"],
-             "app_slug": (z.get("app") or {}).get("slug")}
+             "app_slug": (z.get("app") or {}).get("slug"),
+             "app_id": (z.get("app") or {}).get("id")}
             for z in checks["check_runs"]]},
         "statuses": {"statuses": [
             {"context": z["context"], "state": z["state"],
