@@ -94,12 +94,15 @@ def main():
     if pr_number not in ALLOWED_PRS:
         raise SystemExit("Unexpected PR target")
     event = json.loads(Path(event_path).read_text(encoding="utf-8"))
-    observe, reason = route(event_name, event, pr_number, live_pr(pr_number))
+    live = live_pr(pr_number)
+    observe, reason = route(event_name, event, pr_number, live)
     output = os.environ.get("GITHUB_OUTPUT")
     if not output:
         raise SystemExit("Missing GitHub Actions output path")
+    sha = (live.get("head") or {}).get("sha") if observe else ""
     with open(output, "a", encoding="utf-8") as f:
         f.write(f"should_observe={'true' if observe else 'false'}\n")
+        f.write(f"matched_sha={sha}\n")
     print(f"F1 event route PR #{pr_number}: {'OBSERVE' if observe else 'SKIP'} ({reason})")
 
 
