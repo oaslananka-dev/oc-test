@@ -65,8 +65,10 @@ def _require_native_run_evidence(evidence, native):
     """Fail closed on cross-run or cross-attempt evidence, even at the same SHA."""
     for item in evidence:
         if (not isinstance(item, dict)
-                or item.get("workflow_run_id") != native["run_id"]
-                or item.get("run_attempt") != native["attempt"]):
+                or type(item.get("workflow_run_id")) is not int
+                or type(item.get("run_attempt")) is not int
+                or item["workflow_run_id"] != native["run_id"]
+                or item["run_attempt"] != native["attempt"]):
             raise ValueError("Evidence run provenance differs from native Actions context")
 
 

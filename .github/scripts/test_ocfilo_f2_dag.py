@@ -158,6 +158,14 @@ class RoundMatrixTests(unittest.TestCase):
         replay["run_attempt"] = 2
         with self.assertRaisesRegex(ValueError, "run provenance"):
             self.matrix([replay], rnd=2)
+        # JSON booleans must not compare equal to integer run attempts.
+        replay["run_attempt"] = True
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([replay], rnd=2)
+        replay["run_attempt"] = 1
+        replay["workflow_run_id"] = "777"
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([replay], rnd=2)
 
     def test_forged_or_stale_evidence_rejected(self):
         bad = evidence(AUDIT)
