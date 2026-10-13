@@ -21,7 +21,7 @@ def prepare():
     if m.get("repository")!="oaslananka-dev/oc-test" or not NAME.fullmatch(str(m.get("task_id",""))): fail("repository/task_id not allowed")
     if m.get("phase") not in ("implement","repair"): fail("phase must be implement or repair")
     if m.get("model") not in FREE or m.get("agent")!="build": fail("only free models and build agent permitted")
-    if m.get("profile") not in ("base","runner-check","mcp-fixture"): fail("unsupported tool profile")
+    if m.get("profile") not in ("base","runner-check","mcp-fixture","plugin-proof"): fail("unsupported tool profile")
     if m.get("review_profile","none") not in ("none","codacy-local"): fail("unsupported reviewer profile")
     if type(m.get("publish")) is not bool: fail("publish must be bool")
     if not isinstance(m.get("prompt"),str) or not 4 <= len(m["prompt"]) <= 5000: fail("invalid prompt")
@@ -52,6 +52,8 @@ def prepare():
             "command":["python3",".github/scripts/ocfilo_mcp_fixture.py"],
             "enabled":True
         }}
+    if m["profile"]=="plugin-proof":
+        config["plugins"]=["./.github/ocfilo_plugins/proof"]
     temp=Path(os.environ["RUNNER_TEMP"])
     (temp/"ocfilo-config.json").write_text(json.dumps(config),encoding="utf8")
     (temp/"ocfilo-task.json").write_text(json.dumps(m),encoding="utf8")
