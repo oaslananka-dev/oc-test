@@ -1,0 +1,20 @@
+name: ocfilo Universal Baseline Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_baseline.py'
+      - '.github/scripts/test_ocfilo_baseline.py'
+      - '.github/workflows/ocfilo-baseline-tests.yml'
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify read-only baseline against synthetic git repositories
+        run: python3 .github/scripts/test_ocfilo_baseline.py -v

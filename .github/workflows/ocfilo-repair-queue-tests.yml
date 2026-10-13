@@ -1,0 +1,20 @@
+name: ocfilo Repair Queue Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_repair_queue.py'
+      - '.github/scripts/test_ocfilo_repair_queue.py'
+      - '.github/workflows/ocfilo-repair-queue-tests.yml'
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run durable reservation regression tests
+        run: python3 .github/scripts/test_ocfilo_repair_queue.py -v

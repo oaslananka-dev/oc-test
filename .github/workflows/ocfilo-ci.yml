@@ -1,0 +1,39 @@
+name: ocfilo F1 Test Quality Gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'playground/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify F1 fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('playground/f1-smoke.txt')
+          if not p.exists():
+              raise SystemExit('F1 fixture missing')
+          lines=p.read_text(encoding='utf-8').splitlines()
+          expected=[
+              'ocfilo F1 worker proof',
+              'Big Pickle ran on Ubuntu',
+              'ocfilo F1 CI PASS'
+          ]
+          if lines != expected:
+              raise SystemExit('F1 controlled failure: expected the third acceptance-criteria line; repair worker must add it')
+          print('F1 fixture quality gate: PASS')
+          PY

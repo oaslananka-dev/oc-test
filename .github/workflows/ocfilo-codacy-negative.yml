@@ -1,0 +1,75 @@
+name: ocfilo Codacy Real Finding Negative Test
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-finding-negative:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout test repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Create deliberately unsafe NONCOMMITTED source fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p playground
+          cat > playground/ocfilo-unsafe-fixture.py <<'PY'
+          """Security scanner test fixture. Never import or execute this file."""
+          import pickle
+          import subprocess
+
+          def unsafe_command(command: str) -> None:
+              subprocess.run(command, shell=True, check=True)
+
+          def unsafe_decode(payload: bytes):
+              return pickle.loads(payload)
+
+          def unsafe_expression(expression: str):
+              return eval(expression)
+          PY
+          echo 'Fixture exists only on ephemeral runner, never pushed.'
+      - name: Install pinned Codacy CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global '@codacy/analysis-cli@0.24.0'
+          codacy-analysis --version
+      - name: Scan intentionally unsafe fixture and retain evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/codacy-negative"
+          codacy-analysis init --auto --config-file "$RUNNER_TEMP/codacy-negative-config.json"
+          set +e
+          codacy-analysis analyze --install-dependencies --config-file "$RUNNER_TEMP/codacy-negative-config.json" --output-format json --output "$RUNNER_TEMP/codacy-negative/report.json" --no-log playground/ocfilo-unsafe-fixture.py
+          ec=$?
+          set -e
+          printf '%s' "$ec" > "$RUNNER_TEMP/codacy-negative/exit-code.txt"
+          test -s "$RUNNER_TEMP/codacy-negative/report.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"codacy-negative"/"report.json"
+          obj=json.loads(p.read_text())
+          findings=[{"tool":x.get("toolId"),"pattern":x.get("patternId"),"severity":x.get("severity"),"category":x.get("category")} for x in obj.get("issues",[])]
+          summary={"issues":len(findings),"findings":findings,"errors":len(obj.get("errors",[]))}
+          (p.parent/"finding-summary.json").write_text(json.dumps(summary,indent=2))
+          print("TRUE CODACY FINDINGS (test-only):",json.dumps(summary))
+          if not findings or obj.get("errors"): raise SystemExit("Scanner did not detect real findings without errors")
+          PY
+      - name: Upload test-only Codacy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocfilo-codacy-negative-${{ github.run_id }}
+          path: ${{ runner.temp }}/codacy-negative/
+          retention-days: 3
+          if-no-files-found: warn
