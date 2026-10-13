@@ -1,0 +1,20 @@
+name: ocfilo Observer Handoff Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_handoff.py'
+      - '.github/scripts/test_ocfilo_handoff.py'
+      - '.github/workflows/ocfilo-handoff-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run observer provenance and idempotency tests
+        run: python3 .github/scripts/test_ocfilo_handoff.py -v
