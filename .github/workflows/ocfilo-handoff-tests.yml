@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/scripts/ocfilo_handoff.py'
       - '.github/scripts/test_ocfilo_handoff.py'
+      - '.github/scripts/test_ocfilo_recovery.py'
+      - '.github/scripts/ocfilo_repair_queue.py'
       - '.github/workflows/ocfilo-handoff-tests.yml'
 permissions:
   contents: read
@@ -17,4 +19,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Run observer provenance and idempotency tests
-        run: python3 .github/scripts/test_ocfilo_handoff.py -v
+        run: |
+          python3 .github/scripts/test_ocfilo_handoff.py -v
+          python3 .github/scripts/test_ocfilo_recovery.py -v
