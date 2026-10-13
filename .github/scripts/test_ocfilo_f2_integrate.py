@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import ocfilo_f2_dag as dag
 import ocfilo_f2_integrate as integ
@@ -372,6 +373,76 @@ class CliTests(unittest.TestCase):
                 integ.main(args[:-2] + ["--manifest", str(fx.root / "m2.json"), "--branch", "main"])
         finally:
             os.chdir(old)
+
+    def test_cli_existing_manifest_does_not_create_branch(self):
+        fx = Fixture(self)
+        meta = fx.root / "run.json"
+        meta.write_text(json.dumps(run_meta(fx.sha)), encoding="utf-8")
+        out = fx.root / "manifest.json"
+        out.write_text("keep-existing-manifest", encoding="utf-8")
+        args = ["--plan", "dag-pilot", "--artifacts", str(fx.art), "--run-json", str(meta),
+                "--sha", fx.sha, "--repo", str(fx.repo), "--manifest", str(out),
+                "--branch", "f2-integration/collision"]
+        with self.assertRaises(SystemExit):
+            integ.main(args)
+        self.assertEqual(out.read_text(encoding="utf-8"), "keep-existing-manifest")
+        self.assertEqual(git(fx.repo, "rev-parse", "HEAD"), fx.sha)
+        self.assertEqual(git(fx.repo, "branch", "--list", "f2-integration/*"), "")
+        self.assertEqual(git(fx.repo, "status", "--porcelain"), "")
+    def test_cli_missing_manifest_parent_does_not_create_branch(self):
+        fx = Fixture(self)
+        meta = fx.root / "run.json"
+        meta.write_text(json.dumps(run_meta(fx.sha)), encoding="utf-8")
+        out = fx.root / "not-created" / "manifest.json"
+        args = ["--plan", "dag-pilot", "--artifacts", str(fx.art), "--run-json", str(meta),
+                "--sha", fx.sha, "--repo", str(fx.repo), "--manifest", str(out),
+                "--branch", "f2-integration/missing-parent"]
+        with self.assertRaises(SystemExit):
+            integ.main(args)
+        self.assertFalse(out.exists())
+        self.assertEqual(git(fx.repo, "rev-parse", "HEAD"), fx.sha)
+        self.assertEqual(git(fx.repo, "branch", "--list", "f2-integration/*"), "")
+        self.assertEqual(git(fx.repo, "status", "--porcelain"), "")
+
+    def test_cli_partial_manifest_write_failure_rolls_back_owned_branch(self):
+        fx = Fixture(self)
+        meta = fx.root / "run.json"
+        meta.write_text(json.dumps(run_meta(fx.sha)), encoding="utf-8")
+        out = fx.root / "manifest.json"
+        args = ["--plan", "dag-pilot", "--artifacts", str(fx.art), "--run-json", str(meta),
+                "--sha", fx.sha, "--repo", str(fx.repo), "--manifest", str(out),
+                "--branch", "f2-integration/partial-write"]
+        def failing_write(payload, stream, **_kwargs):
+            stream.write("partial-manifest")
+            raise OSError("simulated output write error")
+        with patch.object(integ.json, "dump", side_effect=failing_write):
+            with self.assertRaises(SystemExit):
+                integ.main(args)
+        self.assertFalse(out.exists(), "Partial manifest must be removed")
+        self.assertEqual(git(fx.repo, "rev-parse", "HEAD"), fx.sha)
+        self.assertEqual(git(fx.repo, "branch", "--list", "f2-integration/*"), "")
+        self.assertEqual(git(fx.repo, "status", "--porcelain"), "")
+
+    def test_cli_existing_symlink_manifest_is_not_followed(self):
+        fx = Fixture(self)
+        meta = fx.root / "run.json"
+        meta.write_text(json.dumps(run_meta(fx.sha)), encoding="utf-8")
+        existing = fx.root / "external.json"
+        existing.write_text("do-not-overwrite", encoding="utf-8")
+        link = fx.root / "manifest-link.json"
+        try:
+            link.symlink_to(existing)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlinks unavailable on this OS: {exc}")
+        args = ["--plan", "dag-pilot", "--artifacts", str(fx.art), "--run-json", str(meta),
+                "--sha", fx.sha, "--repo", str(fx.repo), "--manifest", str(link),
+                "--branch", "f2-integration/symlink"]
+        with self.assertRaises(SystemExit):
+            integ.main(args)
+        self.assertEqual(existing.read_text(encoding="utf-8"), "do-not-overwrite")
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(git(fx.repo, "rev-parse", "HEAD"), fx.sha)
+        self.assertEqual(git(fx.repo, "branch", "--list", "f2-integration/*"), "")
 
     def test_module_never_pushes(self):
         src = (ROOT / ".github/scripts/ocfilo_f2_integrate.py").read_text(encoding="utf-8")

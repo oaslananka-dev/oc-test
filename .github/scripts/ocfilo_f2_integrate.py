@@ -194,6 +194,21 @@ def integrate(raw_plan, art_dir, run_meta, run_id, sha, repo, branch=None):
     }
 
 
+
+def _undo_failed_manifest_publish(repo, branch, expected_sha, created_commit):
+    """Undo only the branch and commit created by this CLI invocation."""
+    if not branch or not created_commit:
+        return
+    active = _git(repo, "symbolic-ref", "--short", "HEAD").decode().strip()
+    head = _git(repo, "rev-parse", "HEAD").decode().strip()
+    if active != branch or head != created_commit:
+        raise ValueError("Integration HEAD changed; manual rollback required")
+    if _git(repo, "status", "--porcelain", "--untracked-files=all").strip():
+        raise ValueError("Integration worktree changed; manual rollback required")
+    _git(repo, "checkout", "-q", "--detach", expected_sha)
+    _git(repo, "branch", "-D", branch)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--plan", required=True, choices=sorted(dag.DAG_PLANS))
@@ -209,11 +224,24 @@ def main(argv=None):
         meta = json.loads(Path(args.run_json).read_text(encoding="utf-8"))
         if not pilot.SHA.fullmatch(args.sha):
             raise ValueError("Exact 40-hex SHA required")
+        output = Path(args.manifest)
+        if output.is_symlink() or output.exists():
+            raise ValueError("Manifest destination already exists")
+        if not output.parent.is_dir():
+            raise ValueError("Manifest parent directory does not exist")
         manifest = integrate(raw, args.artifacts, meta, meta.get("id"), args.sha,
                              args.repo, args.branch)
-        with Path(args.manifest).open("x", encoding="utf-8") as fh:
-            json.dump(manifest, fh, indent=2)
-            fh.write("\n")
+        created = False
+        try:
+            with output.open("x", encoding="utf-8") as fh:
+                created = True
+                json.dump(manifest, fh, indent=2)
+                fh.write("\n")
+        except (OSError, ValueError, KeyError, TypeError):
+            if created:
+                output.unlink()
+            _undo_failed_manifest_publish(args.repo, args.branch, args.sha, manifest["commit"])
+            raise
     except (OSError, ValueError, KeyError, TypeError) as exc:
         ap.exit(2, f"F2 integration refused: {exc}\n")
     print(json.dumps({"branch": manifest["branch"], "commit": manifest["commit"],
