@@ -15,7 +15,7 @@ from ocfilo_f2_plan import plan as validate_plan, REPO
 from ocfilo_f2_pilot import SHA, validate_evidence
 
 # Raise only after a measured 5-worker (then 10-worker) capacity run.
-VALIDATED_CAPACITY = 3
+VALIDATED_CAPACITY = 5  # measured clean: runs 38359600536, 38359780386
 HARD_CAPACITY = 10  # planner limit; a plan must register its own cap below this
 MAX_ATTEMPT_BUDGET = 3
 MAX_EVIDENCE = 200

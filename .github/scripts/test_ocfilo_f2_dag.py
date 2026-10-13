@@ -131,7 +131,7 @@ class RoundMatrixTests(unittest.TestCase):
         for rnd in (0, 7, True, "1"):
             with self.assertRaises(ValueError):
                 self.matrix(rnd=rnd)
-        for cap in (0, 4, True):
+        for cap in (0, 6, True):
             with self.assertRaises(ValueError):
                 self.matrix(capacity=cap)
         for dl in (1, 601, True, None):
@@ -244,19 +244,30 @@ class CapacityPlanTests(unittest.TestCase):
     CAP5 = json.loads((ROOT / "examples/ocfilo-f2-capacity-5.json").read_text(encoding="utf-8-sig"))
 
     def test_caps_are_registered_per_plan(self):
-        self.assertEqual(dag.CAPS, {"f2-dag": 3, "f2-cap5": 5})
+        self.assertEqual(dag.CAPS, {"f2-dag": 5, "f2-cap5": 5, "f2-cap10": 10})
 
     def test_capacity_5_manifest_is_five_independent_tasks(self):
         tasks = dag.read_dag(self.CAP5)
         self.assertEqual(len(tasks), 5)
         self.assertTrue(all(t["depends_on"] == [] for t in tasks.values()))
 
-    def test_five_dispatched_only_for_capacity_5_plan(self):
+    def test_five_dispatched_and_six_rejected(self):
         m, _ = dag.round_matrix(self.CAP5, [], context(), SHA, 1, 5, 300)
         self.assertEqual(len(m["include"]), 5)
         self.assertEqual(len({x["allowed_path"] for x in m["include"]}), 5)
         with self.assertRaises(ValueError):
-            dag.round_matrix(RAW, [], context(), SHA, 1, 5, 300)
+            dag.round_matrix(RAW, [], context(), SHA, 1, 6, 300)
+
+    def test_capacity_10_plan_is_the_only_one_allowing_ten(self):
+        cap10 = json.loads((ROOT / "examples/ocfilo-f2-capacity-10.json").read_text(encoding="utf-8-sig"))
+        self.assertEqual(len(dag.read_dag(cap10)), 10)
+        m, _ = dag.round_matrix(cap10, [], context(), SHA, 1, 10, 300)
+        self.assertEqual(len(m["include"]), 10)
+        for raw in (RAW, self.CAP5):
+            with self.assertRaises(ValueError):
+                dag.round_matrix(raw, [], context(), SHA, 1, 10, 300)
+        with self.assertRaises(ValueError):
+            dag.round_matrix(cap10, [], context(), SHA, 1, 11, 300)
 
     def test_never_above_plan_cap(self):
         for cap in (6, 10, 0, True):
@@ -322,10 +333,10 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_deadline_cap_and_serialization(self):
         self.assertIn("timeout --signal=TERM --kill-after=20", self.ROUND)
-        self.assertIn("max-parallel: 5", self.ROUND)
+        self.assertIn("max-parallel: 10", self.ROUND)
         self.assertIn("group: ocfilo-f2-dag-run", self.RUN)
         self.assertIn("cancel-in-progress: false", self.RUN)
-        self.assertIn("options: ['1', '2', '3', '4', '5']", self.RUN)
+        self.assertIn("options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10']", self.RUN)
         self.assertIn("options: ['300', '600', '900']", self.RUN)
 
     def test_artifacts_are_round_scoped_and_matchable(self):
