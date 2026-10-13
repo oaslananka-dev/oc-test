@@ -54,6 +54,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          OCFILO_EXPECTED_SHA: ${{ steps.route.outputs.matched_sha }}
         run: |
           set -euo pipefail
           python3 .github/scripts/ocfilo_pr_observer.py ${{ matrix.pr }} "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json"
