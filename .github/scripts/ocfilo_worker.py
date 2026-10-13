@@ -45,12 +45,13 @@ def prepare():
     config={"$schema":"https://opencode.ai/config.json","model":m["model"],"default_agent":"build"}
     if m["profile"]=="runner-check": config["skills"]=["./.opencode/skills"]
     if m["profile"]=="mcp-fixture":
-        config["mcp"]={"servers":{"ocfilo_facts":{
+        # OpenCode v2 CLI v2.0.27 compatibility: prefer the supported V1
+        # MCP source layout until native mcp.servers resolution is fixed.
+        config["mcp"]={"ocfilo_facts":{
             "type":"local",
             "command":["python3",".github/scripts/ocfilo_mcp_fixture.py"],
-            "disabled":False,
-            "codemode":False
-        }}}
+            "enabled":True
+        }}
     temp=Path(os.environ["RUNNER_TEMP"])
     (temp/"ocfilo-config.json").write_text(json.dumps(config),encoding="utf8")
     (temp/"ocfilo-task.json").write_text(json.dumps(m),encoding="utf8")
