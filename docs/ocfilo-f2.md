@@ -55,5 +55,3 @@ OpenCode kurulmaz veya �al��t�r�lmaz. Manifest i�ine s�r yaz�lma
 
 F2'nin plan-only ��kt�s� �al��an bir execution engine, scheduler veya
 g�zetimsiz ajan orkestrasyonu olarak sunulamaz.
-
-
