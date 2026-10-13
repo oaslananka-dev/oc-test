@@ -82,6 +82,13 @@ jobs:
           Path(os.environ['RUNNER_TEMP'],'prompt.txt').write_text(prompt)
           PY
           opencode run --standalone --model "$(python3 -c 'import json,os;from pathlib import Path;print(json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())["model"])')" --agent build --format default "$(cat "$RUNNER_TEMP/prompt.txt")" 2>&1 | tee "$RUNNER_TEMP/ocfilo-result/agent.log"
+      - name: Optional Codacy local inspection
+        if: ${{ fromJSON(inputs.manifest_json).review_profile == 'codacy-local' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Codacy local profile requested. Fail closed until a pinned, independently validated CLI adapter and output parser are installed.'
+          exit 1
       - name: Pre-push quality gate
         shell: bash
         run: |
