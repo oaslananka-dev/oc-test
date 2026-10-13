@@ -37,7 +37,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - name: Trusted checkout without persisted credentials
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -74,7 +74,7 @@ jobs:
       F2_RUN_MODE: ${{ inputs.run_mode }}
     steps:
       - name: Trusted main exact SHA checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -94,7 +94,7 @@ jobs:
           PY
       - name: Setup Node for bounded OpenCode only
         if: inputs.run_mode == 'execute'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Install pinned OpenCode
@@ -147,7 +147,7 @@ jobs:
             --out "$RUNNER_TEMP/f2-artifact"
       - name: Upload exact-SHA task evidence ONLY
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ocfilo-f2-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.task_id }}
           path: ${{ runner.temp }}/f2-artifact/

@@ -9,11 +9,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout test repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Node runtime
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Create deliberately unsafe NONCOMMITTED source fixture
@@ -67,7 +67,7 @@ jobs:
           PY
       - name: Upload test-only Codacy report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ocfilo-codacy-negative-${{ github.run_id }}
           path: ${{ runner.temp }}/codacy-negative/

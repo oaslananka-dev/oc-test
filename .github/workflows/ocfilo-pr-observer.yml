@@ -36,7 +36,7 @@ jobs:
         pr: [1, 2]
     steps:
       - name: Checkout observer code from trusted default branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: main
           persist-credentials: false
@@ -76,7 +76,7 @@ jobs:
             --output "$RUNNER_TEMP/pr-${{ matrix.pr }}-policy.json"
       - name: Upload read-only decision evidence
         if: always() && steps.route.outputs.should_observe == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ocfilo-pr-observer-${{ github.run_id }}-${{ matrix.pr }}
           path: |

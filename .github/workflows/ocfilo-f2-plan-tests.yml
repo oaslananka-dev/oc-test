@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Read-only checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Offline DAG and security regression
@@ -67,7 +67,7 @@ jobs:
           PY
       - name: Upload non-executing plan summary
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ocfilo-f2-plan-${{ github.run_id }}
           path: ${{ runner.temp }}/f2-preview/plan-summary.json
