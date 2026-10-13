@@ -13,8 +13,8 @@ def snapshot():
                "head": {"sha": SHA, "ref": "ocfilo/f1-test", "repo": {"full_name": "oaslananka-dev/oc-test"}},
                "base": {"ref": "main", "repo": {"full_name": "oaslananka-dev/oc-test"}}},
         "checks": {"total_count": 2, "check_runs": [
-            {"name": "fixture-quality", "head_sha": SHA, "status": "completed", "conclusion": "success"},
-            {"name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success"}]},
+            {"name": "fixture-quality", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions"},
+            {"name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "semgrep-code-oaslananka"}]},
         "statuses": {"statuses": []},
         "reviews": [], "issue_comments": [], "review_comments": [],
     }
@@ -31,6 +31,26 @@ class Tests(unittest.TestCase):
     def test_missing_required(self):
         s=snapshot();s["checks"]["check_runs"].pop();s["checks"]["total_count"]=1
         self.assertEqual(decide(s)["state"], "WAITING_CHECKS")
+    def test_required_check_wrong_app_is_missing(self):
+        s=snapshot()
+        s["checks"]["check_runs"][0]["app_slug"]="untrusted-app"
+        d=decide(s)
+        self.assertEqual(d["state"],"WAITING_CHECKS")
+        self.assertIn("fixture-quality",d["missing_checks"])
+    def test_required_check_app_missing_is_not_trusted(self):
+        s=snapshot()
+        del s["checks"]["check_runs"][1]["app_slug"]
+        d=decide(s)
+        self.assertEqual(d["state"],"WAITING_CHECKS")
+        self.assertIn("semgrep-cloud-platform/scan",d["missing_checks"])
+    def test_spoofed_newer_green_cannot_override_real_failure(self):
+        s=snapshot()
+        s["checks"]["check_runs"][0]["id"]=101
+        s["checks"]["check_runs"][0]["conclusion"]="failure"
+        bogus=dict(s["checks"]["check_runs"][0],id=999,conclusion="success",app_slug="other-app")
+        s["checks"]["check_runs"].append(bogus)
+        s["checks"]["total_count"]=3
+        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
     def test_paginated_fail_closed(self):
         s=snapshot();s["checks"]["total_count"]=300
         with self.assertRaises(ValueError):decide(s)
