@@ -119,9 +119,27 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/ocfilo-result"
-          git diff --check
-          git add -N -A -- . ':!opencode.json'
-          git diff --binary --no-ext-diff HEAD -- . ':!opencode.json' > "$RUNNER_TEMP/ocfilo-result/changes.patch"
+          # Tool-generated files are not deliverables. Reject unexpected writes,
+          # including tracked workflow/config changes, before scoping the patch.
+          python3 - <<'PY'
+          import subprocess
+          forbidden=[]
+          tracked=subprocess.check_output(["git","diff","--name-only","HEAD"],text=True).splitlines()
+          untracked=subprocess.check_output(["git","ls-files","--others","--exclude-standard"],text=True).splitlines()
+          for path in tracked+untracked:
+              temporary=(path.startswith(".codacy/") or
+                         "/__pycache__/" in "/"+path or path.endswith(".pyc") or
+                         path=="opencode.json")
+              if not path.startswith("playground/") and not temporary:
+                  forbidden.append(path)
+              elif path.startswith("playground/") and ("/__pycache__/" in "/"+path or path.endswith(".pyc")):
+                  continue
+          if forbidden:
+              raise SystemExit("Unexpected tracked/untracked files: "+repr(forbidden))
+          PY
+          git add -N -A -- playground/
+          git diff --check HEAD -- playground/ ':!playground/**/__pycache__/**' ':!playground/**/*.pyc'
+          git diff --binary --no-ext-diff HEAD -- playground/ ':!playground/**/__pycache__/**' ':!playground/**/*.pyc' > "$RUNNER_TEMP/ocfilo-result/changes.patch"
           OCFILO_PATCH="$RUNNER_TEMP/ocfilo-result/changes.patch" python3 .github/scripts/ocfilo_worker.py gate
           git status --short > "$RUNNER_TEMP/ocfilo-result/status.txt"
       - name: Upload result artifact
