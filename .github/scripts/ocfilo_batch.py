@@ -13,7 +13,7 @@ REPO = "oaslananka-dev/oc-test"
 ID = re.compile(r"[a-z0-9][a-z0-9-]{1,48}\Z")
 SAFE_PATH = re.compile(r"playground/[A-Za-z0-9_.\-/]+\Z")
 FREE = {"opencode/big-pickle","opencode/ling-3.1-flash-free","opencode/nemotron-3-ultra-free"}
-PROFILES = {"base","runner-check"}
+PROFILES = {"base","runner-check","mcp-fixture"}
 REVIEW = {"none","codacy-local"}
 MAX_WORKERS = 3
 
