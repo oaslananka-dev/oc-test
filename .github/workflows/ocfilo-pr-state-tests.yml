@@ -1,0 +1,20 @@
+name: ocfilo PR Decision Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_pr_state.py'
+      - '.github/scripts/test_ocfilo_pr_state.py'
+      - '.github/workflows/ocfilo-pr-state-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test offline idempotent PR decision engine
+        run: python3 .github/scripts/test_ocfilo_pr_state.py -v
