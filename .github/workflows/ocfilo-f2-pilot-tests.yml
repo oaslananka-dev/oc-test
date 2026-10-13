@@ -1,0 +1,48 @@
+name: ocfilo F2 Bounded Pilot Regression
+
+on:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_f2_pilot.py'
+      - '.github/scripts/test_ocfilo_f2_pilot.py'
+      - 'examples/ocfilo-f2-execution-pilot.json'
+      - '.github/workflows/ocfilo-f2-pilot-tests.yml'
+      - '.github/workflows/ocfilo-f2-worker-pilot.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Checkout without token persistence
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify F2.1 and F2.2 independent safety gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/test_ocfilo_f2_plan.py
+          python3 .github/scripts/test_ocfilo_f2_pilot.py
+      - name: Reject inadvertent runtime authorization
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_f2_plan.py \
+            --input examples/ocfilo-f2-execution-pilot.json \
+            --output "$RUNNER_TEMP/f2-offline-summary.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads(Path(os.environ['RUNNER_TEMP'],'f2-offline-summary.json').read_text())
+          assert s['dispatch_allowed'] is False
+          assert s['execution_authorized'] is False
+          assert s['task_count'] == 3
+          assert s['wave_count'] == 1
+          PY
