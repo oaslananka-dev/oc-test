@@ -157,6 +157,44 @@ that calls it is a separate change.
   after a clean measured run at that width; asking for more than a plan's cap
   is rejected.
 
+## F2.4 - Verified integration assembler (local, human-reviewed)
+
+`.github/scripts/ocfilo_f2_integrate.py` turns the artifacts of ONE complete,
+successful DAG run into a single local branch. It has no network code, never
+pushes, never opens a PR and never merges (`pushed=false`,
+`review_required=true`, `merge_allowed=false` in its manifest). Pushing the
+branch and opening the PR is a separate human-supervised step.
+
+Everything is checked before any git change:
+
+- **Run metadata** (the GitHub runs API JSON, fetched by the operator): id,
+  attempt, `head_sha` equal to the evidence SHA, `head_branch=main`,
+  `event=workflow_dispatch`, path of the DAG run workflow, `status=completed`,
+  `conclusion=success`, repository name and numeric ID.
+- **Artifact identity**: only `ocfilo-f2-<run>-<attempt>-r<round>-<task>`
+  folders (plus the ignored `dagstate` one), only `result.json` and
+  `changes.patch`, no symlinks. The folder name must agree with the evidence.
+  A patch must exist exactly when the task `SUCCEEDED`.
+- **Evidence**: schema-2 contract (`validate_evidence`) against the plan, exact
+  SHA, same attempt. Scheduler state must be `COMPLETE`; exactly one
+  `SUCCEEDED` evidence per task. Any failed, missing or duplicate task refuses
+  the whole integration (no partial branches).
+- **Patch shape**: UTF-8 text, at most 32 KiB, one `diff --git` for exactly the
+  owned file, new file or plain `100644` change, no rename, delete, mode
+  change, symlink or binary data, no stray lines. Each patch must also pass
+  `git apply --check` on the exact base.
+- **Repository**: `HEAD` is the evidence SHA, worktree clean, branch name
+  `f2-integration/<name>` and not already present. After applying, the staged
+  change set must equal the owned paths exactly; otherwise the branch is
+  rolled back and deleted.
+- Commit author is `ocfilo-integrator`, separate from any GitHub credential.
+
+Usage: download the run's artifacts (`gh run download <run>`), save
+`gh api repos/<repo>/actions/runs/<run>` to a file, check out the evidence SHA
+and run `ocfilo_f2_integrate.py --plan <name> --artifacts <dir> --run-json <file>
+--sha <sha> --manifest <out.json> [--branch f2-integration/<name>]`. Without
+`--branch` it is a dry run. CI on the resulting PR runs normally.
+
 ## Manual acceptance
 
 1. After code review and green baseline, F2.2 tests and Semgrep, merge
