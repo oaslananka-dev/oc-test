@@ -16,12 +16,13 @@ def prepare():
     try: m=json.loads(raw)
     except ValueError: fail("invalid JSON")
     if not isinstance(m,dict): fail("manifest must be object")
-    allowed={"task_id","repository","phase","prompt","model","agent","profile","publish","issue","pr_number","expected_sha","fix_rounds"}
+    allowed={"task_id","repository","phase","prompt","model","agent","profile","publish","issue","pr_number","expected_sha","fix_rounds","review_profile"}
     if set(m)-allowed: fail("unexpected fields "+str(sorted(set(m)-allowed)))
     if m.get("repository")!="oaslananka-dev/oc-test" or not NAME.fullmatch(str(m.get("task_id",""))): fail("repository/task_id not allowed")
     if m.get("phase") not in ("implement","repair"): fail("phase must be implement or repair")
     if m.get("model") not in FREE or m.get("agent")!="build": fail("only free models and build agent permitted")
     if m.get("profile") not in ("base","runner-check"): fail("unsupported tool profile")
+    if m.get("review_profile","none") not in ("none","codacy-local"): fail("unsupported reviewer profile")
     if type(m.get("publish")) is not bool: fail("publish must be bool")
     if not isinstance(m.get("prompt"),str) or not 4 <= len(m["prompt"]) <= 5000: fail("invalid prompt")
     if type(m.get("fix_rounds",1)) is not int or not 1 <= m.get("fix_rounds",1) <= 3: fail("invalid repair budget")
