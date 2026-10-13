@@ -74,28 +74,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          import json,os
-          from pathlib import Path
-          root=json.loads(Path("opencode.json").read_text())
-          print("MCP project config:", json.dumps(root.get("mcp", {}),sort_keys=True))
-          PY
-          opencode debug config > "$RUNNER_TEMP/ocfilo-mcp-resolved.json"
-          python3 - <<'PY'
-          import json,os
-          from pathlib import Path
-          p=Path(os.environ["RUNNER_TEMP"])/"ocfilo-mcp-resolved.json"
-          obj=json.loads(p.read_text())
-          print("MCP debug type:",type(obj).__name__)
-          if isinstance(obj,dict):
-              print("MCP debug keys:", sorted(obj))
-              print("MCP resolved config:",json.dumps(obj.get("mcp",{}),sort_keys=True))
-          elif isinstance(obj,list):
-              print("MCP debug list size:",len(obj))
-              for entry in obj[:5]:
-                  print("MCP debug list entry keys:", sorted(entry) if isinstance(entry,dict) else type(entry).__name__)
-          else:
-              raise SystemExit("Unexpected MCP config diagnostic shape")
           PY
           opencode mcp list 2>&1 | tee "$RUNNER_TEMP/ocfilo-mcp-list.txt"
           grep -q 'ocfilo_facts' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
