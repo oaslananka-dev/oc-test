@@ -13,8 +13,9 @@ from pathlib import Path
 REPO = "oaslananka-dev/oc-test"
 BRANCH = re.compile(r"ocfilo/f1-[a-z0-9-]+\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
-REQUIRED = frozenset({"fixture-quality", "semgrep-cloud-platform/scan"})
-REQUIRED_APPS = {"fixture-quality": "github-actions",
+REQUIRED = frozenset({"baseline", "fixture-quality", "semgrep-cloud-platform/scan"})
+REQUIRED_APPS = {"baseline": "github-actions",
+                 "fixture-quality": "github-actions",
                  "semgrep-cloud-platform/scan": "semgrep-code-oaslananka"}
 MAX_REPAIRS = 3
 DONE = {"success"}
