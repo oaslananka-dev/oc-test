@@ -150,6 +150,23 @@ class RoundMatrixTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.matrix(env=env)
 
+    def test_cross_run_and_attempt_evidence_rejected(self):
+        # Native GITHUB_RUN_ID + GITHUB_RUN_ATTEMPT must bound all rounds.
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([evidence(AUDIT, run=778)], rnd=2)
+        replay = evidence(AUDIT)
+        replay["run_attempt"] = 2
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([replay], rnd=2)
+        # JSON booleans must not compare equal to integer run attempts.
+        replay["run_attempt"] = True
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([replay], rnd=2)
+        replay["run_attempt"] = 1
+        replay["workflow_run_id"] = "777"
+        with self.assertRaisesRegex(ValueError, "run provenance"):
+            self.matrix([replay], rnd=2)
+
     def test_forged_or_stale_evidence_rejected(self):
         bad = evidence(AUDIT)
         bad["published"] = True
@@ -388,6 +405,19 @@ class CliTests(unittest.TestCase):
     def test_unregistered_plan_refused(self):
         with self.repo_env() as (head, tmp), self.assertRaises(SystemExit):
             dag.main(["matrix", "--plan", "nope", "--out", str(tmp / "o")])
+
+    def test_state_rejects_other_run_evidence_before_writing(self):
+        with self.repo_env() as (head, tmp):
+            folder = tmp / "ev"
+            folder.mkdir()
+            bad = evidence(AUDIT, run=778, sha=head)
+            (folder / "result.json").write_text(json.dumps(bad), encoding="utf-8")
+            out = tmp / "state.json"
+            with self.assertRaises(SystemExit) as cm:
+                dag.main(["state", "--plan", "dag-pilot", "--evidence-dir", str(folder),
+                          "--out", str(out)])
+            self.assertEqual(cm.exception.code, 2)
+            self.assertFalse(out.exists())
 
     def test_state_require_complete_fails_when_incomplete(self):
         with self.repo_env() as (head, tmp):

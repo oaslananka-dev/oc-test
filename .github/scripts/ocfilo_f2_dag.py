@@ -61,10 +61,22 @@ def _check_round(round_no):
         raise ValueError(f"Round must be an integer 1..{pilot.MAX_ROUNDS}")
 
 
+def _require_native_run_evidence(evidence, native):
+    """Fail closed on cross-run or cross-attempt evidence, even at the same SHA."""
+    for item in evidence:
+        if (not isinstance(item, dict)
+                or type(item.get("workflow_run_id")) is not int
+                or type(item.get("run_attempt")) is not int
+                or item["workflow_run_id"] != native["run_id"]
+                or item["run_attempt"] != native["attempt"]):
+            raise ValueError("Evidence run provenance differs from native Actions context")
+
+
 def round_matrix(raw, evidence, env, sha, round_no, capacity, deadline):
     """Return (matrix, schedule result) for one round. Proposal, never dispatch."""
     read_dag(raw)
-    pilot.validate_context(env, sha)
+    native = pilot.validate_context(env, sha)
+    _require_native_run_evidence(evidence, native)
     _check_round(round_no)
     if type(deadline) is not int or deadline not in pilot.DEADLINES:
         raise ValueError("Unapproved per-agent deadline")
@@ -138,8 +150,9 @@ def main(argv=None):
             print(json.dumps(finalize(raw, args.task_id, env, sha, temp,
                                       args.agent_outcome, args.out, run, round_no)))
         else:
-            pilot.validate_context(env, sha)
+            native = pilot.validate_context(env, sha)
             evidence = load_evidence(args.evidence_dir)
+            _require_native_run_evidence(evidence, native)
             result = schedule(raw, evidence, sha, 1)
             if not args.out:
                 raise ValueError("Missing output file")
