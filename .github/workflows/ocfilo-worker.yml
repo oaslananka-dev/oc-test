@@ -74,7 +74,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PY
           opencode mcp list 2>&1 | tee "$RUNNER_TEMP/ocfilo-mcp-list.txt"
           grep -q 'ocfilo_facts' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
           grep -qi 'connected' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
