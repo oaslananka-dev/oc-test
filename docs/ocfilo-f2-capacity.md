@@ -12,6 +12,7 @@ control. A cap is raised only after clean runs at that width.
 | [38358793590](https://github.com/oaslananka-dev/oc-test/actions/runs/38358793590) | dag-pilot (3 rounds) | 1, 2, 1 | 1 s in round 2 | 10 / 16 / 63 | COMPLETE |
 | [38359600536](https://github.com/oaslananka-dev/oc-test/actions/runs/38359600536) | capacity-5 | 5 | 0 s (all 06:56:34Z) | 15 / 19 / 26 | 5 SUCCEEDED |
 | [38359780386](https://github.com/oaslananka-dev/oc-test/actions/runs/38359780386) | capacity-5 | 5 | 0 s (all 06:58:28Z) | 15 / 18 / 49 | 5 SUCCEEDED |
+| [38364810638](https://github.com/oaslananka-dev/oc-test/actions/runs/38364810638) | capacity-5 | 5 | 0 s (all 07:46:34Z) | 13 / 20 / 67 | 5 SUCCEEDED |
 | [38360448016](https://github.com/oaslananka-dev/oc-test/actions/runs/38360448016) | capacity-10 | 10 | 4 s (07:05:06Z to 07:05:10Z) | 12 / 18.5 / 247 | 10 SUCCEEDED |
 | [38361074538](https://github.com/oaslananka-dev/oc-test/actions/runs/38361074538) | capacity-10, 600 s deadline | 10 (+1 retry) | 6 s (07:11:14Z to 07:11:20Z) | 14 / 18 / 28 for the 9 that finished | 9 SUCCEEDED, 1 FAILED, DAG HALTED |
 
@@ -59,3 +60,14 @@ Runs up to and including the first 10-worker run had no failures or retries.
 `capacity-10`, `run_mode=execute`, matching `capacity`, `agent_deadline_seconds=300`.
 Then download the artifacts and read `agent_seconds`, `failure_class` and the
 job start/finish times.
+
+## Real-runner cancel (run 38365148389)
+
+A 5-worker `capacity-5` run was cancelled with `gh run cancel` while the agents
+were running. Result: all 5 worker jobs `cancelled`, and all 5 still uploaded
+valid evidence: `worker_outcome=CANCELLED`, `failure_class=CANCELLED`,
+`retryable=false`, `scope_verified=false`, `published=false`, no patch. One
+agent had already exited 0 after 13 s when the cancel arrived; it was still
+recorded as `CANCELLED` and its output discarded, which is the conservative
+choice. Later rounds did not start (`!cancelled()` guard). Cancel recovery is
+therefore validated on a real runner for this workflow.
