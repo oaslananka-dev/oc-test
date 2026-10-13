@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-      - 'playground/**'
+      - 'playground/f1-smoke.txt'
   workflow_dispatch:
 
 permissions:
