@@ -74,6 +74,40 @@ Still 1-3 workers. Capacity above 3 is NOT validated by this change.
 Not yet built: lease/heartbeat, automatic bounded retry runner, DAG wave
 runtime, 5/10 worker capacity runs, result integration (F2.4).
 
+## F2.3b - Offline DAG scheduler (proposal only)
+
+`.github/scripts/ocfilo_f2_sched.py` decides what could run next. It reads a
+plan, schema-2 evidence for one exact checkout SHA and the task IDs GitHub
+reports as running. It starts nothing, calls no API and authorizes nothing
+(`proposal_only: true`). A human-initiated workflow must act on the proposal.
+
+States per task: `SUCCEEDED`, `RUNNING`, `READY`, `PENDING`, `FAILED`,
+`CANCELLED`, `BLOCKED`.
+
+- `READY`: all dependencies `SUCCEEDED`, task not running, not finished,
+  retry budget left. `PENDING`: a dependency is not done yet.
+- `BLOCKED`: a dependency is `FAILED`, `CANCELLED` or `BLOCKED` (transitive).
+  Independent branches keep going; one failure never discards other results.
+- **Retry:** only when the last failure class is advisory-retryable and fewer
+  than `max_attempts` (default 2, max 3) distinct runs failed. `QUOTA_EXHAUSTED`,
+  `SCOPE_VIOLATION` and `CANCELLED` are terminal. `CONFIG_ONLY` evidence is not
+  an attempt.
+- **No double start:** a `SUCCEEDED` task is never proposed again; a `RUNNING`
+  task is never proposed and uses one capacity slot.
+- **Capacity:** at most `VALIDATED_CAPACITY` (3) minus running tasks. Raise it
+  only after a measured 5-worker run.
+- **Fail closed:** evidence for another SHA, unknown task, wrong path/model/
+  identity/issue, tampered fields, conflicting duplicates, success recorded
+  before its dependencies, or an unknown or premature `running` ID rejects the
+  whole step. Exact duplicate evidence is idempotent. Result is independent of
+  evidence order.
+- Outcome: `COMPLETE`, `IN_PROGRESS`, or `HALTED` (nothing ready or running,
+  work remains).
+
+Local use:
+`python3 .github/scripts/ocfilo_f2_sched.py --plan examples/ocfilo-f2-ten-task-plan.json --evidence-dir <downloaded artifacts> --sha <40-hex> --output out.json`
+(output file is never overwritten).
+
 ## Manual acceptance
 
 1. After code review and green baseline, F2.2 tests and Semgrep, merge
