@@ -69,6 +69,14 @@ jobs:
           npm install --global '@opencode/cli@2.0.27'
           opencode --version
           opencode debug config > "$RUNNER_TEMP/resolved-config.txt"
+      - name: Verify vetted local MCP connection
+        if: ${{ fromJSON(inputs.manifest_json).profile == 'mcp-fixture' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode mcp list 2>&1 | tee "$RUNNER_TEMP/ocfilo-mcp-list.txt"
+          grep -q 'ocfilo_facts' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
+          grep -qi 'connected' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
       - name: Execute worker
         shell: bash
         run: |
