@@ -155,6 +155,15 @@ jobs:
             --agent-seconds "$F2_AGENT_SECONDS" \
             --deadline-seconds "$F2_DEADLINE_SECONDS" \
             --out "$RUNNER_TEMP/f2-artifact"
+      - name: Show bounded agent log tail (job log only, never uploaded)
+        if: always() && steps.opencode.outcome == 'failure'
+        shell: bash
+        run: |
+          # Neutralize "::" so model output cannot inject workflow commands.
+          f="$RUNNER_TEMP/f2-agent.log"
+          if [ -f "$f" ]; then
+            tail -n 30 "$f" | cut -c1-200 | sed 's/::/: :/g'
+          fi
       - name: Upload exact-SHA task evidence ONLY
         if: always()
         uses: actions/upload-artifact@v6
