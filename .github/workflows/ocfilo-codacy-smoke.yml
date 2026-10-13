@@ -1,0 +1,61 @@
+name: ocfilo Codacy v2 CLI Smoke
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  codacy-local:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned Codacy Analysis CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global '@codacy/analysis-cli@0.24.0'
+          codacy-analysis --version || codacy-analysis info
+      - name: Discover tools and initialize isolated config
+        shell: bash
+        run: |
+          set -euo pipefail
+          codacy-analysis discover --output-format json > "$RUNNER_TEMP/codacy-discovery.json"
+          codacy-analysis init --auto --config-file "$RUNNER_TEMP/codacy-config.json"
+          codacy-analysis analyze --inspect --config-file "$RUNNER_TEMP/codacy-config.json" > "$RUNNER_TEMP/codacy-inspect.txt"
+          test -s "$RUNNER_TEMP/codacy-config.json"
+      - name: Run Python file analysis
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          codacy-analysis analyze .github/scripts/ocfilo_worker.py --install-dependencies --config-file "$RUNNER_TEMP/codacy-config.json" --output-format json --output "$RUNNER_TEMP/codacy-report.json" --no-log
+          result=$?
+          set -e
+          echo "Codacy scan exit: $result"
+          test -s "$RUNNER_TEMP/codacy-report.json" || { echo 'Missing machine-readable report'; exit 4; }
+          cp "$RUNNER_TEMP/codacy-report.json" "$RUNNER_TEMP/codacy-report-copy.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"codacy-report.json"
+          data=json.loads(p.read_text())
+          print("Report top-level:",list(data)[:15] if isinstance(data,dict) else type(data).__name__)
+          PY
+          if [ "$result" -gt 1 ]; then exit "$result"; fi
+      - name: Upload diagnostic reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codacy-smoke-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/codacy-report*.json
+            ${{ runner.temp }}/codacy-discovery.json
+            ${{ runner.temp }}/codacy-inspect.txt
+            ${{ runner.temp }}/codacy-config.json
+          retention-days: 3
+          if-no-files-found: warn
