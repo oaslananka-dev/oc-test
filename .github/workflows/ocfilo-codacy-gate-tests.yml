@@ -1,0 +1,20 @@
+name: ocfilo Codacy Gate Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_codacy.py'
+      - '.github/scripts/test_ocfilo_codacy.py'
+      - '.github/workflows/ocfilo-codacy-gate-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Run offline Codacy gate regression tests
+        run: python3 .github/scripts/test_ocfilo_codacy.py -v
