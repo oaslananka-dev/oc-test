@@ -1,0 +1,57 @@
+name: ocfilo F1 PR Observer
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - ocfilo F1 Test Quality Gate
+    types:
+      - completed
+  check_run:
+    types:
+      - completed
+  pull_request:
+    types:
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  statuses: read
+  issues: read
+
+jobs:
+  observe:
+    if: >-
+      (github.event_name != 'check_run' || github.event.check_run.app.slug == 'semgrep-cloud-platform')
+      && (github.event_name != 'pull_request' || github.event.pull_request.number == 1 || github.event.pull_request.number == 2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: [1, 2]
+    steps:
+      - name: Checkout observer code from trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Read live PR and CI state (no writes)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_pr_observer.py ${{ matrix.pr }} "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json"
+      - name: Upload read-only decision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocfilo-pr-observer-${{ github.run_id }}-${{ matrix.pr }}
+          path: ${{ runner.temp }}/pr-${{ matrix.pr }}-decision.json
+          retention-days: 3
+          if-no-files-found: warn
