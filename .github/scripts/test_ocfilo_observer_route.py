@@ -41,8 +41,8 @@ class EventRoutingTests(unittest.TestCase):
             with patch.object(sys,"argv",argv), patch.dict(os.environ,{"GITHUB_OUTPUT":str(output)}), patch.object(router,"live_pr",return_value=current()):
                 router.main()
             values=output.read_text()
-            self.assertIn("should_observe=true\\n",values)
-            self.assertIn("matched_sha="+SHA1+"\\n",values)
+            self.assertIn("should_observe=true\n",values)
+            self.assertIn("matched_sha="+SHA1+"\n",values)
     def test_main_does_not_emit_sha_for_unrelated_pr(self):
         with tempfile.TemporaryDirectory() as temp:
             payload=Path(temp)/"event.json"
@@ -52,8 +52,8 @@ class EventRoutingTests(unittest.TestCase):
             with patch.object(sys,"argv",argv),patch.dict(os.environ,{"GITHUB_OUTPUT":str(output)}),patch.object(router,"live_pr",return_value=current()):
                 router.main()
             values=output.read_text()
-            self.assertIn("should_observe=false\\n",values)
-            self.assertIn("matched_sha=\\n",values)
+            self.assertIn("should_observe=false\n",values)
+            self.assertIn("matched_sha=\n",values)
     def test_observer_rejects_changed_sha_before_collecting_checks(self):
         live=current()
         live.update({"merged":False,"draft":False,"mergeable":True,"mergeable_state":"clean"})
