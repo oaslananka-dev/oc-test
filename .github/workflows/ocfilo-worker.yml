@@ -80,7 +80,7 @@ jobs:
           m=json.loads(Path(os.environ['RUNNER_TEMP'],'ocfilo-task.json').read_text())
           scope=m.get("allowed_paths")
           scoped="\nAssigned exact writable files: "+", ".join(scope) if scope else ""
-          prompt=m['prompt']+"\\nF1 sandbox: edit only plain text under playground/. No push, PR, config, workflow or secrets changes."+scoped
+          prompt=m['prompt']+"\nF1 sandbox: edit only plain text under playground/. No push, PR, config, workflow or secrets changes."+scoped
           Path(os.environ['RUNNER_TEMP'],'prompt.txt').write_text(prompt)
           PY
           opencode run --standalone --model "$(python3 -c 'import json,os;from pathlib import Path;print(json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())["model"])')" --agent build --format default "$(cat "$RUNNER_TEMP/prompt.txt")" 2>&1 | tee "$RUNNER_TEMP/ocfilo-result/agent.log"
