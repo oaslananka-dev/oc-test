@@ -1,0 +1,165 @@
+name: ocfilo F2 DAG Round (reusable)
+
+# Called only by ocfilo-f2-dag-run.yml, which is started by a human on
+# main. One round: the scheduler proposes at most `capacity` ready tasks, each
+# runs on its own runner under a hard deadline and uploads non-publishing evidence.
+on:
+  workflow_call:
+    inputs:
+      plan:
+        type: string
+        required: true
+      round:
+        type: number
+        required: true
+      run_mode:
+        type: string
+        required: true
+      deadline_seconds:
+        type: string
+        required: true
+      capacity:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  plan:
+    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+    steps:
+      - name: Trusted checkout without persisted credentials
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download evidence of finished rounds
+        if: inputs.round > 1
+        uses: actions/download-artifact@v7
+        with:
+          pattern: ocfilo-f2-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/f2-evidence
+      - name: Ask scheduler which tasks may run this round
+        id: matrix
+        shell: bash
+        env:
+          F2_PLAN: ${{ inputs.plan }}
+          F2_ROUND: ${{ inputs.round }}
+          F2_CAPACITY: ${{ inputs.capacity }}
+          F2_DEADLINE: ${{ inputs.deadline_seconds }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/f2-evidence"
+          python3 .github/scripts/ocfilo_f2_dag.py matrix \
+            --plan "$F2_PLAN" --round "$F2_ROUND" \
+            --capacity "$F2_CAPACITY" --deadline-seconds "$F2_DEADLINE" \
+            --evidence-dir "$RUNNER_TEMP/f2-evidence" \
+            --out "$GITHUB_OUTPUT"
+
+  worker:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      F2_PLAN: ${{ inputs.plan }}
+      F2_ROUND: ${{ inputs.round }}
+      F2_TASK_ID: ${{ matrix.task_id }}
+      F2_ALLOWED_PATH: ${{ matrix.allowed_path }}
+      F2_DEADLINE_SECONDS: ${{ matrix.deadline_seconds }}
+      F2_RUN_MODE: ${{ inputs.run_mode }}
+    steps:
+      - name: Trusted main exact SHA checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare approved OpenCode task with immutable provenance
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_f2_dag.py prepare \
+            --plan "$F2_PLAN" --task-id "$F2_TASK_ID"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          obj = json.loads(Path(os.environ["RUNNER_TEMP"], "f2-context.json").read_text())
+          assert obj["allowed_paths"] == [os.environ["F2_ALLOWED_PATH"]]
+          assert obj["checkout_sha"] == os.environ["GITHUB_SHA"]
+          assert obj["publication_allowed"] is False
+          PY
+      - name: Setup Node for bounded OpenCode only
+        if: inputs.run_mode == 'execute'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Install pinned OpenCode
+        if: inputs.run_mode == 'execute'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global '@opencode/cli@2.0.27'
+          opencode --version
+          opencode debug config > "$RUNNER_TEMP/f2-resolved-config.txt"
+      - name: Run ONE scoped OpenCode task under a hard deadline
+        if: inputs.run_mode == 'execute'
+        id: opencode
+        timeout-minutes: 16
+        shell: bash
+        run: |
+          set -uo pipefail
+          start=$SECONDS
+          set +e
+          timeout --signal=TERM --kill-after=20 "$F2_DEADLINE_SECONDS" \
+            opencode run --standalone --model opencode/big-pickle --agent build \
+            --format default "$(cat "$RUNNER_TEMP/f2-prompt.txt")" \
+            > "$RUNNER_TEMP/f2-agent.log" 2>&1
+          code=$?
+          set -e
+          {
+            echo "exit_code=$code"
+            echo "seconds=$((SECONDS - start))"
+          } >> "$GITHUB_OUTPUT"
+          exit "$code"
+      - name: Produce per-task bounded non-publishing evidence
+        if: always() && steps.prepare.outcome == 'success'
+        shell: bash
+        env:
+          F2_AGENT_STEP: ${{ steps.opencode.outcome }}
+          F2_AGENT_EXIT: ${{ steps.opencode.outputs.exit_code }}
+          F2_AGENT_SECONDS: ${{ steps.opencode.outputs.seconds }}
+        run: |
+          set -euo pipefail
+          outcome="$F2_AGENT_STEP"
+          if [ "$F2_RUN_MODE" = 'config-only' ]; then
+            outcome='config-only'
+          fi
+          python3 .github/scripts/ocfilo_f2_dag.py finalize \
+            --plan "$F2_PLAN" --task-id "$F2_TASK_ID" --round "$F2_ROUND" \
+            --agent-outcome "$outcome" \
+            --agent-exit-code "$F2_AGENT_EXIT" \
+            --agent-seconds "$F2_AGENT_SECONDS" \
+            --deadline-seconds "$F2_DEADLINE_SECONDS" \
+            --out "$RUNNER_TEMP/f2-artifact"
+      - name: Upload exact-SHA task evidence ONLY
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ocfilo-f2-${{ github.run_id }}-${{ github.run_attempt }}-r${{ inputs.round }}-${{ matrix.task_id }}
+          path: ${{ runner.temp }}/f2-artifact/
+          retention-days: 7
+          if-no-files-found: error
