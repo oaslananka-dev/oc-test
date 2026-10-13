@@ -69,11 +69,13 @@ def collect(pr_number):
                      "repo": {"full_name": pr["base"]["repo"]["full_name"]}},
         },
         "checks": {"total_count": checks["total_count"], "check_runs": [
-            {"name": z["name"], "head_sha": z["head_sha"], "status": z["status"],
-             "conclusion": z["conclusion"]} for z in checks["check_runs"]]},
+            {"id": z["id"], "name": z["name"], "head_sha": z["head_sha"],
+             "status": z["status"], "conclusion": z["conclusion"]}
+            for z in checks["check_runs"]]},
         "statuses": {"statuses": [
             {"context": z["context"], "state": z["state"],
-             "sha": z.get("sha", sha)} for z in statuses["statuses"]]},
+             "sha": z.get("sha", sha), "created_at": z.get("created_at")}
+            for z in statuses["statuses"]]},
         "reviews": [{"user": user(r), "state": r["state"]} for r in reviews],
         "issue_comments": [{"id": c["id"], "user": user(c)} for c in issue_comments],
         "review_comments": [{"id": c["id"], "user": user(c)} for c in review_comments],
