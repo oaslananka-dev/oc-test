@@ -39,11 +39,15 @@ def get(path):
         raise ValueError("GitHub response paginated; observer fail closed")
     return result
 
-def collect(pr_number):
+def collect(pr_number, expected_sha=None):
     if type(pr_number) is not int or pr_number not in ALLOWED_PRS:
         raise ValueError("Only approved F1 test PRs 1 and 2")
     pr = get(f"/repos/{REPO}/pulls/{pr_number}")
     sha = pr["head"]["sha"]
+    if (not isinstance(expected_sha, str) or len(expected_sha) != 40
+        or any(ch not in "0123456789abcdef" for ch in expected_sha)
+        or expected_sha != sha):
+        raise ValueError("PR HEAD changed since trusted event routing")
     checks = get(f"/repos/{REPO}/commits/{sha}/check-runs?per_page=100")
     statuses = get(f"/repos/{REPO}/commits/{sha}/status?per_page=100")
     reviews = get(f"/repos/{REPO}/pulls/{pr_number}/reviews?per_page=100")
@@ -89,7 +93,7 @@ def main():
     number = int(sys.argv[1])
     output = Path(sys.argv[2])
     try:
-        result = collect(number)
+        result = collect(number, os.environ.get("OCFILO_EXPECTED_SHA"))
     except (ValueError, KeyError, IndexError, urllib.error.URLError) as e:
         # Fail closed rather than accidentally marking a PR merge-ready.
         print("observer blocked: " + str(e), file=sys.stderr)
