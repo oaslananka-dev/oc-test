@@ -73,5 +73,3 @@ jobs:
           path: ${{ runner.temp }}/f2-preview/plan-summary.json
           retention-days: 7
           if-no-files-found: error
-
-
