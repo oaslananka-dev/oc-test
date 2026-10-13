@@ -14,6 +14,8 @@ REPO = "oaslananka-dev/oc-test"
 BRANCH = re.compile(r"ocfilo/f1-[a-z0-9-]+\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 REQUIRED = frozenset({"fixture-quality", "semgrep-cloud-platform/scan"})
+REQUIRED_APPS = {"fixture-quality": "github-actions",
+                 "semgrep-cloud-platform/scan": "semgrep-code-oaslananka"}
 MAX_REPAIRS = 3
 DONE = {"success"}
 SKIPPED = {"neutral", "skipped"}
@@ -76,6 +78,14 @@ def decide(snapshot, ledger=None):
         name = check.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("unnamed check-run")
+        if name in REQUIRED_APPS:
+            app = check.get("app_slug")
+            if app is None and isinstance(check.get("app"), dict):
+                app = check["app"].get("slug")
+            # A check with a required name is not authoritative unless the
+            # identity of the GitHub App that reported it is expected.
+            if app != REQUIRED_APPS[name]:
+                continue
         grouped.setdefault(name, []).append(check)
     required_missing = sorted(REQUIRED - grouped.keys())
     pending, failed = set(), set()
