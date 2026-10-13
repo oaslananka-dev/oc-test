@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "plan_id": "f2-dag",
+  "repository": "oaslananka-dev/oc-test",
+  "run_mode": "plan-only",
+  "max_parallel": 3,
+  "tasks": [
+    {
+      "task_id": "f2-dag-audit",
+      "prompt": "Create playground/f2/dag/audit.txt containing three short observations about the repository layout. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": ["playground/f2/dag/audit.txt"],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-dag-backend",
+      "prompt": "Create playground/f2/dag/backend.txt containing three brief observations about the repository Python scripts. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": ["playground/f2/dag/backend.txt"],
+      "depends_on": ["f2-dag-audit"],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-dag-frontend",
+      "prompt": "Create playground/f2/dag/frontend.txt containing three brief observations about how repository documentation is organized. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": ["playground/f2/dag/frontend.txt"],
+      "depends_on": ["f2-dag-audit"],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-dag-report",
+      "prompt": "Create playground/f2/dag/report.txt containing a three-line summary of the repository build and test structure. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": ["playground/f2/dag/report.txt"],
+      "depends_on": ["f2-dag-backend", "f2-dag-frontend"],
+      "issue_number": 10
+    }
+  ]
+}

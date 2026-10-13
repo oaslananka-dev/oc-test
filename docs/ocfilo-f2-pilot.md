@@ -108,6 +108,28 @@ Local use:
 `python3 .github/scripts/ocfilo_f2_sched.py --plan examples/ocfilo-f2-ten-task-plan.json --evidence-dir <downloaded artifacts> --sha <40-hex> --output out.json`
 (output file is never overwritten).
 
+## F2.3c (part 1) - Manifest-driven DAG worker glue
+
+`.github/scripts/ocfilo_f2_dag.py` lets a trusted, human-started workflow run a
+reviewed DAG in rounds. This part adds the offline logic only; the workflow
+that calls it is a separate change.
+
+- Only manifests registered in `DAG_PLANS` (currently `dag-pilot`,
+  `examples/ocfilo-f2-dag-pilot.json`: audit, then backend and frontend in
+  parallel, then report) are accepted. Constraints on every task: issue 10,
+  `opencode/big-pickle`, `build`, `base`, `actions-readonly`, exactly one
+  writable file under `playground/f2/dag/`.
+- `matrix`: asks the F2.3b scheduler what may run this round (capacity at most
+  3) and emits `task_id`, `allowed_path`, `deadline_seconds`, `round`. No prompt
+  text in the matrix. Evidence from the current or a later round is rejected.
+- `prepare` / `finalize` reuse the F2.2 scope, config and evidence rules through
+  the manifest instead of the fixed 3-task table. Evidence now carries `round`
+  (1..6) so a retry in a later round of the same run is a distinct attempt.
+- `state --require-complete`: records the final scheduler state and fails
+  unless every task `SUCCEEDED`.
+- Dependencies gate ordering only. A downstream worker does not receive its
+  dependencies' patches; combining results is F2.4.
+
 ## Manual acceptance
 
 1. After code review and green baseline, F2.2 tests and Semgrep, merge
