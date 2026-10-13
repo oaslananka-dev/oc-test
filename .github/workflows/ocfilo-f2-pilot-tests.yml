@@ -14,6 +14,8 @@ on:
       - 'examples/ocfilo-f2-execution-pilot.json'
       - '.github/workflows/ocfilo-f2-pilot-tests.yml'
       - '.github/workflows/ocfilo-f2-worker-pilot.yml'
+      - '.github/workflows/ocfilo-f2-dag-run.yml'
+      - '.github/workflows/ocfilo-f2-dag-round.yml'
   push:
     paths:
       - '.github/scripts/ocfilo_f2_pilot.py'
@@ -26,6 +28,8 @@ on:
       - 'examples/ocfilo-f2-execution-pilot.json'
       - '.github/workflows/ocfilo-f2-pilot-tests.yml'
       - '.github/workflows/ocfilo-f2-worker-pilot.yml'
+      - '.github/workflows/ocfilo-f2-dag-run.yml'
+      - '.github/workflows/ocfilo-f2-dag-round.yml'
   workflow_dispatch:
 
 permissions:

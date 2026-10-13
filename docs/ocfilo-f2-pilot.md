@@ -130,6 +130,28 @@ that calls it is a separate change.
 - Dependencies gate ordering only. A downstream worker does not receive its
   dependencies' patches; combining results is F2.4.
 
+## F2.3c (part 2) - Manual DAG run workflow
+
+`ocfilo F2 Bounded Manual DAG Run` (`ocfilo-f2-dag-run.yml`) calls the reusable
+`ocfilo-f2-dag-round.yml` for rounds 1 to 6 in sequence.
+
+- Trigger: `workflow_dispatch` on `main` only. Inputs: `plan` (`dag-pilot`),
+  `run_mode`, `capacity` (1 to 3), `agent_deadline_seconds` (300/600/900).
+  `contents: read`, no secrets, no token, no push/PR/merge/deploy.
+- Round job `plan`: downloads this run's evidence, asks the scheduler for at
+  most `capacity` ready tasks. Job `worker`: one runner per task, hard
+  deadline, evidence upload named
+  `ocfilo-f2-<run>-<attempt>-r<round>-<task>`. Empty round: worker skipped.
+- `config-only` runs round 1 only and makes no model call. `execute` runs up to
+  6 rounds; later rounds start even after a failure (unless cancelled) so
+  independent branches finish, retries happen within the attempt budget, and
+  dependents of a failed task stay blocked.
+- Final `state` job writes `ocfilo-f2-dagstate-<run>-<attempt>` and, in
+  `execute` mode, fails the run unless every task `SUCCEEDED`.
+- `concurrency: ocfilo-f2-dag-run` allows one DAG run at a time, so quota is
+  not shared by overlapping runs.
+- Capacity stays at 3. Raising it needs a measured 5-worker run.
+
 ## Manual acceptance
 
 1. After code review and green baseline, F2.2 tests and Semgrep, merge

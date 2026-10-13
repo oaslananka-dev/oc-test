@@ -240,6 +240,66 @@ class DagWorkerTests(unittest.TestCase):
             (ROOT / "examples/ocfilo-f2-execution-pilot.json").read_text(encoding="utf-8-sig")))), 3)
 
 
+class WorkflowContractTests(unittest.TestCase):
+    RUN = (ROOT / ".github/workflows/ocfilo-f2-dag-run.yml").read_text(encoding="utf-8")
+    ROUND = (ROOT / ".github/workflows/ocfilo-f2-dag-round.yml").read_text(encoding="utf-8")
+    ALLOWED_USES = {"actions/checkout@v5", "actions/setup-node@v5",
+                    "actions/upload-artifact@v6", "actions/download-artifact@v7",
+                    "./.github/workflows/ocfilo-f2-dag-round.yml"}
+
+    def test_triggers_are_manual_only(self):
+        for forbidden in ("schedule:", "push:", "pull_request", "workflow_run",
+                          "repository_dispatch", "issue_comment"):
+            self.assertNotIn(forbidden, self.RUN)
+            self.assertNotIn(forbidden, self.ROUND)
+        self.assertIn("workflow_dispatch:", self.RUN)
+        self.assertNotIn("workflow_dispatch", self.ROUND)
+        self.assertIn("workflow_call:", self.ROUND)
+
+    def test_one_round_job_per_allowed_round_and_no_more(self):
+        calls = self.RUN.count("uses: ./.github/workflows/ocfilo-f2-dag-round.yml")
+        self.assertEqual(calls, pilot.MAX_ROUNDS)
+        self.assertIn(f"round: {pilot.MAX_ROUNDS}\n", self.RUN)
+        self.assertNotIn(f"round: {pilot.MAX_ROUNDS + 1}\n", self.RUN)
+
+    def test_least_privilege_and_no_secrets(self):
+        for text in (self.RUN, self.ROUND):
+            self.assertIn("contents: read", text)
+            self.assertNotIn("write", text.replace("non-publishing", ""))
+            self.assertNotIn("secrets.", text)
+            self.assertNotIn("GH_TOKEN", text)
+            self.assertNotIn("GITHUB_TOKEN", text)
+        self.assertIn("persist-credentials: false", self.ROUND)
+
+    def test_only_approved_pinned_actions(self):
+        import re
+        for text in (self.RUN, self.ROUND):
+            for used in re.findall(r"uses: (\S+)", text):
+                self.assertIn(used, self.ALLOWED_USES)
+
+    def test_deadline_cap_and_serialization(self):
+        self.assertIn("timeout --signal=TERM --kill-after=20", self.ROUND)
+        self.assertIn("max-parallel: 3", self.ROUND)
+        self.assertIn("group: ocfilo-f2-dag-run", self.RUN)
+        self.assertIn("cancel-in-progress: false", self.RUN)
+        self.assertIn("options: ['1', '2', '3']", self.RUN)
+        self.assertIn("options: ['300', '600', '900']", self.RUN)
+
+    def test_artifacts_are_round_scoped_and_matchable(self):
+        base = "ocfilo-f2-${{ github.run_id }}-${{ github.run_attempt }}-"
+        self.assertIn(base + "r${{ inputs.round }}-${{ matrix.task_id }}", self.ROUND)
+        self.assertIn("pattern: " + base + "*", self.ROUND)
+        self.assertIn("pattern: " + base + "*", self.RUN)
+
+    def test_complete_required_only_when_executing(self):
+        self.assertIn("--require-complete", self.RUN)
+        self.assertIn("'execute'", self.RUN)
+
+    def test_later_rounds_run_only_after_cancellation_check(self):
+        self.assertEqual(self.RUN.count("!cancelled() && inputs.run_mode == 'execute'"),
+                         pilot.MAX_ROUNDS - 1)
+
+
 class CliTests(unittest.TestCase):
     @contextmanager
     def repo_env(self):
