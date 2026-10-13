@@ -8,10 +8,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
       - name: Install pinned Codacy Analysis CLI
@@ -49,7 +49,7 @@ jobs:
           if [ "$result" -gt 1 ]; then exit "$result"; fi
       - name: Upload diagnostic reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: codacy-smoke-${{ github.run_id }}
           path: |

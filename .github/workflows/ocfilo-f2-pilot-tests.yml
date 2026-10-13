@@ -29,7 +29,7 @@ jobs:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
       - name: Checkout without token persistence
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           persist-credentials: false
       - name: Verify F2.1 and F2.2 independent safety gates
