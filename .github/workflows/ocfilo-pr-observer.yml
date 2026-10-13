@@ -47,11 +47,28 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/ocfilo_pr_observer.py ${{ matrix.pr }} "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json"
+      - name: Audit enforcement of GitHub merge policy (read only)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/oaslananka-dev/oc-test/pulls/${{ matrix.pr }} > "$RUNNER_TEMP/pr-${{ matrix.pr }}-live.json"
+          gh api repos/oaslananka-dev/oc-test/branches/main > "$RUNNER_TEMP/main-policy.json"
+          gh api 'repos/oaslananka-dev/oc-test/rulesets?includes_parents=true&per_page=100' > "$RUNNER_TEMP/rulesets.json"
+          python3 .github/scripts/ocfilo_merge_policy.py \
+            --pr "$RUNNER_TEMP/pr-${{ matrix.pr }}-live.json" \
+            --branch "$RUNNER_TEMP/main-policy.json" \
+            --rulesets "$RUNNER_TEMP/rulesets.json" \
+            --technical "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json" \
+            --output "$RUNNER_TEMP/pr-${{ matrix.pr }}-policy.json"
       - name: Upload read-only decision evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ocfilo-pr-observer-${{ github.run_id }}-${{ matrix.pr }}
-          path: ${{ runner.temp }}/pr-${{ matrix.pr }}-decision.json
+          path: |
+            ${{ runner.temp }}/pr-${{ matrix.pr }}-decision.json
+            ${{ runner.temp }}/pr-${{ matrix.pr }}-policy.json
           retention-days: 3
           if-no-files-found: warn
