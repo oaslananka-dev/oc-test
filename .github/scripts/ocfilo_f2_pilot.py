@@ -107,14 +107,26 @@ def validate_agent_run(run):
     return out
 
 
-def validate_evidence(ev):
-    """Consumer-side contract for result.json (schema 2). Raises ValueError."""
+def default_expected():
+    return {t: {"allowed_paths": [p], "issue_number": 10, "model": MODEL,
+                "identity": "actions-readonly"} for t, p in TASKS.items()}
+
+
+def validate_evidence(ev, expected=None):
+    """Consumer-side contract for result.json (schema 2). Raises ValueError.
+
+    expected maps task_id to its plan entry (allowed_paths, issue_number,
+    model, identity); default is the fixed F2.2 pilot."""
+    expected = default_expected() if expected is None else expected
     try:
         outcome, cls = ev["worker_outcome"], ev["failure_class"]
+        want = expected.get(ev["task_id"])
         ok = (ev["schema_version"] == 2 and ev["repository"] == REPO
-              and ev["repository_id"] == int(REPO_ID) and ev["issue_number"] == 10
-              and ev["task_id"] in TASKS and ev["published"] is False
-              and ev["allowed_paths"] == [TASKS[ev["task_id"]]]
+              and ev["repository_id"] == int(REPO_ID) and want is not None
+              and ev["issue_number"] == want["issue_number"]
+              and ev["model"] == want["model"] and ev["identity"] == want["identity"]
+              and ev["published"] is False
+              and ev["allowed_paths"] == want["allowed_paths"]
               and isinstance(ev["checkout_sha"], str) and SHA.fullmatch(ev["checkout_sha"])
               and ev["idempotency_key"] == idempotency_key(ev["checkout_sha"], ev["task_id"])
               and outcome in OUTCOMES
