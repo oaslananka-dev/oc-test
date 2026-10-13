@@ -74,6 +74,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=json.loads(Path("opencode.json").read_text())
+          print("MCP project config:", json.dumps(root.get("mcp", {}),sort_keys=True))
+          PY
+          opencode debug config > "$RUNNER_TEMP/ocfilo-mcp-resolved.json"
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"ocfilo-mcp-resolved.json"
+          obj=json.loads(p.read_text())
+          print("MCP resolved config:",json.dumps(obj.get("mcp",{}),sort_keys=True))
+          PY
           opencode mcp list 2>&1 | tee "$RUNNER_TEMP/ocfilo-mcp-list.txt"
           grep -q 'ocfilo_facts' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
           grep -qi 'connected' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
