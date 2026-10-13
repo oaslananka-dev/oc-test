@@ -29,6 +29,39 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/ocfilo_worker.py prepare
           cp "$RUNNER_TEMP/ocfilo-config.json" opencode.json
+      - name: Checkout exact current PR commit for repair
+        if: ${{ fromJSON(inputs.manifest_json).phase == 'repair' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "$RUNNER_TEMP/pr-number.txt"
+          import json,os
+          from pathlib import Path
+          m=json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())
+          print(m["pr_number"])
+          PY
+          number="$(cat "$RUNNER_TEMP/pr-number.txt")"
+          gh api "repos/oaslananka-dev/oc-test/pulls/$number" > "$RUNNER_TEMP/pr.json"
+          python3 - <<'PY' > "$RUNNER_TEMP/repair-ref.txt"
+          import json,os,re
+          from pathlib import Path
+          pr=json.loads(Path(os.environ["RUNNER_TEMP"],"pr.json").read_text())
+          m=json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())
+          ref=pr["head"]["ref"]
+          if (pr["head"]["repo"]["full_name"]!="oaslananka-dev/oc-test"
+              or pr["base"]["ref"]!="main"
+              or not re.fullmatch(r"ocfilo/f1-[a-z0-9-]+",ref)
+              or pr["head"]["sha"]!=m["expected_sha"]
+              or pr["state"]!="open"):
+              raise SystemExit("PR branch/head SHA mismatch; repair refused")
+          print(ref)
+          PY
+          ref="$(cat "$RUNNER_TEMP/repair-ref.txt")"
+          git fetch --no-tags --depth=1 origin "$ref"
+          test "$(git rev-parse FETCH_HEAD)" = "$(python3 -c 'import json,os;from pathlib import Path;print(json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())["expected_sha"])')"
+          git checkout --detach FETCH_HEAD
       - name: Install OpenCode
         shell: bash
         run: |
