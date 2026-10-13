@@ -1,0 +1,20 @@
+name: ocfilo Event Scope Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_observer_route.py'
+      - '.github/scripts/test_ocfilo_observer_route.py'
+      - '.github/workflows/ocfilo-observer-route-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify SHA and PR scoped event routing
+        run: python3 .github/scripts/test_ocfilo_observer_route.py -v
