@@ -25,6 +25,116 @@ TASKS = {
 }
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_BYTES = 32768
+DEADLINES = (300, 600, 900)
+LOG_TAIL_BYTES = 65536
+# Terminal outcomes recorded in evidence. PENDING/READY/RUNNING exist only as
+# live GitHub job states; BLOCKED belongs to the future DAG runtime.
+OUTCOMES = ("SUCCEEDED", "FAILED", "CANCELLED", "CONFIG_ONLY")
+FAILURE_CLASSES = (
+    "TIMEOUT", "RATE_LIMITED", "QUOTA_EXHAUSTED", "PROVIDER_ERROR", "NETWORK",
+    "AGENT_ERROR", "NOT_STARTED", "CANCELLED", "NO_CHANGE", "SCOPE_VIOLATION",
+    "CONFIG_TAMPERED", "OUTPUT_INVALID", "EVIDENCE_INVALID",
+)
+# Advisory only: a future retry runner must still bound attempts and never
+# switch to a paid model. Class comes from an untrusted log; it never grants
+# authority.
+RETRYABLE = frozenset({"TIMEOUT", "RATE_LIMITED", "PROVIDER_ERROR", "NETWORK"})
+LOG_PATTERNS = (  # order matters: quota wins over a bare 429
+    ("QUOTA_EXHAUSTED", re.compile(
+        r"quota|insufficient[ _]?(?:credits?|funds|balance)|billing|payment required"
+        r"|(?:status|http|error)\W{0,4}402\b", re.I)),
+    ("RATE_LIMITED", re.compile(
+        r"rate[ _-]?limit|too many requests|(?:status|http|error)\W{0,4}429\b", re.I)),
+    ("PROVIDER_ERROR", re.compile(
+        r"service unavailable|bad gateway|gateway time-?out|internal server error"
+        r"|overloaded|(?:status|http|error)\W{0,4}50[0234]\b", re.I)),
+    ("NETWORK", re.compile(
+        r"ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up"
+        r"|fetch failed", re.I)),
+)
+
+
+class WorkerError(ValueError):
+    """Fail-closed worker rejection carrying an evidence failure class."""
+
+    def __init__(self, message, failure_class="EVIDENCE_INVALID"):
+        super().__init__(message)
+        self.failure_class = failure_class
+
+
+def idempotency_key(sha, task_id):
+    """Stable across run attempts: one task on one checkout SHA."""
+    return hashlib.sha256(f"{REPO_ID}:{sha}:{task_id}".encode()).hexdigest()
+
+
+def classify_failure(outcome, exit_code=None, seconds=None, deadline=None, log_tail=""):
+    if outcome == "cancelled":
+        return "CANCELLED"
+    if outcome == "skipped":
+        return "NOT_STARTED"
+    if exit_code == 124 or (exit_code == 137 and seconds is not None
+                            and deadline is not None and seconds >= deadline):
+        return "TIMEOUT"
+    for name, pattern in LOG_PATTERNS:
+        if pattern.search(log_tail):
+            return name
+    return "AGENT_ERROR"
+
+
+def read_log_tail(temporary):
+    try:
+        with open(Path(temporary) / "f2-agent.log", "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - LOG_TAIL_BYTES))
+            return f.read().decode("utf-8", "replace")
+    except OSError:
+        return ""
+
+
+def _bounded_int(value, low, high):
+    return type(value) is int and low <= value <= high
+
+
+def validate_agent_run(run):
+    """Strictly validate the workflow-provided execution record."""
+    run = run or {}
+    out = {k: run.get(k) for k in ("exit_code", "seconds", "deadline")}
+    if ((out["exit_code"] is not None and not _bounded_int(out["exit_code"], 0, 255))
+            or (out["seconds"] is not None and not _bounded_int(out["seconds"], 0, 86400))
+            or (out["deadline"] is not None
+                and (type(out["deadline"]) is not int or out["deadline"] not in DEADLINES))):
+        raise ValueError("Invalid agent execution record")
+    return out
+
+
+def validate_evidence(ev):
+    """Consumer-side contract for result.json (schema 2). Raises ValueError."""
+    try:
+        outcome, cls = ev["worker_outcome"], ev["failure_class"]
+        ok = (ev["schema_version"] == 2 and ev["repository"] == REPO
+              and ev["repository_id"] == int(REPO_ID) and ev["issue_number"] == 10
+              and ev["task_id"] in TASKS and ev["published"] is False
+              and ev["allowed_paths"] == [TASKS[ev["task_id"]]]
+              and isinstance(ev["checkout_sha"], str) and SHA.fullmatch(ev["checkout_sha"])
+              and ev["idempotency_key"] == idempotency_key(ev["checkout_sha"], ev["task_id"])
+              and outcome in OUTCOMES
+              and ev["retryable"] is (cls in RETRYABLE)
+              and (ev["scope_verified"] is True) == (outcome == "SUCCEEDED"))
+        agent = (ev["agent_exit_code"], ev["agent_seconds"], ev["deadline_seconds"])
+        validate_agent_run(dict(zip(("exit_code", "seconds", "deadline"), agent)))
+        if outcome in ("SUCCEEDED", "CONFIG_ONLY"):
+            ok = ok and cls is None
+        elif outcome == "CANCELLED":
+            ok = ok and cls == "CANCELLED"
+        else:
+            ok = ok and cls in FAILURE_CLASSES and cls != "CANCELLED"
+        if outcome == "CONFIG_ONLY":
+            ok = ok and agent == (None, None, None)
+    except (KeyError, TypeError) as exc:
+        raise ValueError("Malformed F2 evidence") from exc
+    if not ok:
+        raise ValueError("F2 evidence violates task state contract")
+    return ev
 
 
 def read_manifest(raw):
@@ -76,15 +186,17 @@ def git(*args):
     return r.stdout.strip()
 
 
-def make_matrix(raw, count, env, actual_sha):
+def make_matrix(raw, count, env, actual_sha, deadline=600):
     tasks = read_manifest(raw)
     validate_context(env, actual_sha)
     if type(count) is not int or not 1 <= count <= 3:
         raise ValueError("Only 1..3 explicitly selected workers")
+    if type(deadline) is not int or deadline not in DEADLINES:
+        raise ValueError("Unapproved per-agent deadline")
     selected = list(TASKS)[:count]
     return {"include": [
         {"slot": i + 1, "task_id": tid,
-         "allowed_path": TASKS[tid]}
+         "allowed_path": TASKS[tid], "deadline_seconds": deadline}
         for i, tid in enumerate(selected)
         if tid in tasks
     ]}
@@ -127,7 +239,7 @@ def prepare(raw, task_id, env, actual_sha, temporary):
     return result
 
 
-def evaluate_worktree(task_id, env, temporary, agent_outcome):
+def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None):
     temp = Path(temporary)
     result = json.loads((temp / "f2-context.json").read_text(encoding="utf-8"))
     expected = validate_context(env, git("rev-parse", "HEAD"))
@@ -136,12 +248,12 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome):
             or result["run_attempt"] != expected["attempt"]
             or result["allowed_paths"] != [TASKS[task_id]]
             or result["task_id"] != task_id):
-        raise ValueError("Result provenance / file owner mismatch")
+        raise WorkerError("Result provenance / file owner mismatch")
     config = Path("opencode.json")
     if (not config.is_file() or config.is_symlink()
             or hashlib.sha256(config.read_bytes()).hexdigest()
             != (temp / "f2-config-sha256.txt").read_text(encoding="ascii")):
-        raise ValueError("Agent modified trusted tool configuration")
+        raise WorkerError("Agent modified trusted tool configuration", "CONFIG_TAMPERED")
     # Read complete status including untracked changes; never silently ignore
     # an out-of-scope path or an unexpected rename/symlink.
     status = subprocess.run(
@@ -157,16 +269,20 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome):
             if p != "opencode.json":
                 changed.append(p)
         else:
-            raise ValueError("Unexpected git status operation; deny changes")
+            raise WorkerError("Unexpected git status operation; deny changes",
+                              "SCOPE_VIOLATION")
     allowed = TASKS[task_id]
-    if len(changed) != 1 or changed != [allowed]:
-        raise ValueError("Agent wrote outside exact assigned file or no change")
+    if any(p != allowed for p in changed):
+        raise WorkerError("Agent wrote outside exact assigned file", "SCOPE_VIOLATION")
+    if agent_outcome != "success":
+        raise WorkerError("OpenCode agent did not complete successfully",
+                          agent_failure or classify_failure(agent_outcome))
+    if not changed:
+        raise WorkerError("Agent produced no change to the exact assigned file", "NO_CHANGE")
     target = Path(allowed)
     if (not target.is_file() or target.is_symlink()
             or target.stat().st_size > MAX_BYTES):
-        raise ValueError("Invalid output file type or size")
-    if agent_outcome != "success":
-        raise ValueError("OpenCode agent did not complete successfully")
+        raise WorkerError("Invalid output file type or size", "OUTPUT_INVALID")
     subprocess.run(["git", "add", "-N", "--", allowed], check=True)
     subprocess.run(["git", "diff", "--check", "HEAD", "--", allowed],
                    check=True, stdout=subprocess.DEVNULL)
@@ -174,24 +290,28 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome):
         ["git", "diff", "--binary", "--no-ext-diff", "HEAD", "--", allowed],
         check=True, capture_output=True).stdout
     if not patch or len(patch) > MAX_BYTES or b"GIT binary patch" in patch:
-        raise ValueError("Missing/unsafe output patch")
+        raise WorkerError("Missing/unsafe output patch", "OUTPUT_INVALID")
     return patch, result
 
 
-def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact):
+def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact,
+             agent_run=None):
     """Persist fail-closed evidence even when model execution fails."""
     tasks = read_manifest(raw)
     validate_context(env, actual_sha)
     if task_id not in tasks:
         raise ValueError("Unknown task")
-    evidence = {"schema_version": 1, "repository": REPO,
+    evidence = {"schema_version": 2, "repository": REPO,
                 "repository_id": int(REPO_ID), "issue_number": 10,
                 "model": MODEL, "identity": "actions-readonly",
                 "allowed_paths": [TASKS[task_id]], "task_id": task_id,
                 "checkout_sha": actual_sha,
+                "idempotency_key": idempotency_key(actual_sha, task_id),
                 "workflow_run_id": int(env["GITHUB_RUN_ID"]),
                 "run_attempt": int(env["GITHUB_RUN_ATTEMPT"]),
-                "worker_outcome": "FAILED",
+                "worker_outcome": "FAILED", "failure_class": None,
+                "retryable": False, "agent_exit_code": None,
+                "agent_seconds": None, "deadline_seconds": None,
                 "scope_verified": False, "published": False}
     dest = Path(artifact)
     dest.mkdir(parents=True, exist_ok=True)
@@ -201,18 +321,37 @@ def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact):
             # No worker executed; in this mode absolutely no patch.
             evidence["worker_outcome"] = "CONFIG_ONLY"
         else:
-            patch, _ = evaluate_worktree(task_id, env, temporary, outcome)
+            run = validate_agent_run(agent_run)
+            evidence["agent_exit_code"] = run["exit_code"]
+            evidence["agent_seconds"] = run["seconds"]
+            evidence["deadline_seconds"] = run["deadline"]
+            failure = None
+            if outcome != "success":
+                failure = classify_failure(outcome, run["exit_code"], run["seconds"],
+                                           run["deadline"], read_log_tail(temporary))
+            patch, _ = evaluate_worktree(task_id, env, temporary, outcome, failure)
             (dest / "changes.patch").write_bytes(patch)
             evidence["worker_outcome"] = "SUCCEEDED"
             evidence["scope_verified"] = True
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         error = str(exc)[:240]
+        cls = getattr(exc, "failure_class", "EVIDENCE_INVALID")
         evidence["error"] = error
+        evidence["failure_class"] = cls
+        evidence["retryable"] = cls in RETRYABLE
+        if cls == "CANCELLED":
+            evidence["worker_outcome"] = "CANCELLED"
+    validate_evidence(evidence)
     (dest / "result.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     if error:
-        raise ValueError(error)
+        raise WorkerError(error, evidence["failure_class"])
     return evidence
+
+
+def opt_int(value):
+    """Workflow outputs are empty strings when the agent step never ran."""
+    return int(value) if value not in (None, "") else None
 
 
 def main():
@@ -222,13 +361,18 @@ def main():
     ap.add_argument("--task-id")
     ap.add_argument("--out")
     ap.add_argument("--agent-outcome", default="config-only")
+    ap.add_argument("--agent-exit-code")
+    ap.add_argument("--agent-seconds")
+    ap.add_argument("--deadline-seconds")
     args = ap.parse_args()
     source = json.loads(MANIFEST.read_text(encoding="utf-8-sig"))
     temp = os.environ.get("RUNNER_TEMP", "")
     try:
         sha = git("rev-parse", "HEAD")
         if args.operation == "matrix":
-            matrix = make_matrix(source, args.worker_count, os.environ, sha)
+            deadline = opt_int(args.deadline_seconds)
+            matrix = make_matrix(source, args.worker_count, os.environ, sha,
+                                 600 if deadline is None else deadline)
             if not args.out:
                 raise ValueError("Missing matrix output")
             with open(args.out, "a", encoding="utf-8") as out:
@@ -240,8 +384,11 @@ def main():
         else:
             if not args.out:
                 raise ValueError("Missing safe artifact folder")
-            print(json.dumps(finalize(source, args.task_id, os.environ,
-                                     sha, temp, args.agent_outcome, args.out)))
+            run = {"exit_code": opt_int(args.agent_exit_code),
+                   "seconds": opt_int(args.agent_seconds),
+                   "deadline": opt_int(args.deadline_seconds)}
+            print(json.dumps(finalize(source, args.task_id, os.environ, sha, temp,
+                                      args.agent_outcome, args.out, run)))
     except (OSError, ValueError, KeyError, TypeError) as exc:
         ap.exit(2, f"F2 bounded pilot refused: {exc}\n")
 

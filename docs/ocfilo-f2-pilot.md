@@ -37,6 +37,43 @@ observer, repair queue, publisher checks and protection rules remain unchanged.
 - The workflow **never** pushes, opens a PR, merges, deploys, launches
   another workflow, starts Multica or updates external systems.
 
+## F2.3a - Deadline, failure taxonomy and evidence contract
+
+Still 1-3 workers. Capacity above 3 is NOT validated by this change.
+
+- **Hard per-agent deadline.** `agent_deadline_seconds` (300/600/900, default
+  600) is validated in the planning job and enforced on the runner with
+  `timeout --signal=TERM --kill-after=20`. A step-level `timeout-minutes: 16`
+  is only a backstop so the evidence step always runs.
+- **Failure classes** in `result.json` (`failure_class`): `TIMEOUT`,
+  `RATE_LIMITED`, `QUOTA_EXHAUSTED`, `PROVIDER_ERROR`, `NETWORK`,
+  `AGENT_ERROR`, `NOT_STARTED` (agent step skipped, no model call),
+  `CANCELLED`, `NO_CHANGE`, `SCOPE_VIOLATION`, `CONFIG_TAMPERED`,
+  `OUTPUT_INVALID`, `EVIDENCE_INVALID`. Provider classes come from a pattern
+  match on the last 64 KiB of the agent log inside the runner; only the class
+  is uploaded, never log text. The class is advisory telemetry from an
+  untrusted log and never grants authority.
+- **Terminal states** (`worker_outcome`): `SUCCEEDED`, `FAILED`, `CANCELLED`,
+  `CONFIG_ONLY`. `PENDING`/`READY`/`RUNNING` exist only as live GitHub job
+  states; `BLOCKED` arrives with the DAG runtime.
+- **Retry is advisory.** `retryable` is true only for `TIMEOUT`,
+  `RATE_LIMITED`, `PROVIDER_ERROR`, `NETWORK`. Nothing retries automatically.
+  A human re-runs failed jobs; there is no silent paid-model fallback.
+  `QUOTA_EXHAUSTED` is never retryable.
+- **Idempotency.** `idempotency_key` = sha256(repo ID, checkout SHA, task ID).
+  It is identical across run attempts, so a consumer can detect a task that
+  already `SUCCEEDED` on that SHA. Run ID and attempt identify each execution.
+- **Measurement.** `agent_exit_code`, `agent_seconds`, `deadline_seconds` are
+  recorded for capacity planning (needed before 5 and 10 workers).
+- **Artifact name** is `ocfilo-f2-<run_id>-<run_attempt>-<task_id>`, so a
+  re-run attempt cannot collide with an earlier artifact. A missing artifact
+  now fails the job instead of warning.
+- `validate_evidence()` in `ocfilo_f2_pilot.py` is the consumer contract
+  (schema version 2). `finalize` validates its own output with it.
+
+Not yet built: lease/heartbeat, automatic bounded retry runner, DAG wave
+runtime, 5/10 worker capacity runs, result integration (F2.4).
+
 ## Manual acceptance
 
 1. After code review and green baseline, F2.2 tests and Semgrep, merge
