@@ -40,7 +40,17 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Route event to currently matching PR SHA
+        id: route
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_observer_route.py \
+            "$GITHUB_EVENT_NAME" "$GITHUB_EVENT_PATH" "${{ matrix.pr }}"
       - name: Read live PR and CI state (no writes)
+        if: steps.route.outputs.should_observe == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,6 +58,7 @@ jobs:
           set -euo pipefail
           python3 .github/scripts/ocfilo_pr_observer.py ${{ matrix.pr }} "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json"
       - name: Audit enforcement of GitHub merge policy (read only)
+        if: steps.route.outputs.should_observe == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -63,7 +74,7 @@ jobs:
             --technical "$RUNNER_TEMP/pr-${{ matrix.pr }}-decision.json" \
             --output "$RUNNER_TEMP/pr-${{ matrix.pr }}-policy.json"
       - name: Upload read-only decision evidence
-        if: always()
+        if: always() && steps.route.outputs.should_observe == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ocfilo-pr-observer-${{ github.run_id }}-${{ matrix.pr }}
