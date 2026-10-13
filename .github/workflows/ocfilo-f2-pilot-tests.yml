@@ -10,6 +10,8 @@ on:
       - '.github/scripts/test_ocfilo_f2_sched.py'
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
+      - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/test_ocfilo_f2_integrate.py'
       - 'examples/ocfilo-f2-dag-pilot.json'
       - 'examples/ocfilo-f2-capacity-5.json'
       - 'examples/ocfilo-f2-capacity-10.json'
@@ -26,6 +28,8 @@ on:
       - '.github/scripts/test_ocfilo_f2_sched.py'
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
+      - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/test_ocfilo_f2_integrate.py'
       - 'examples/ocfilo-f2-dag-pilot.json'
       - 'examples/ocfilo-f2-capacity-5.json'
       - 'examples/ocfilo-f2-capacity-10.json'
@@ -42,7 +46,7 @@ permissions:
 jobs:
   offline-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 6
+    timeout-minutes: 10
     env:
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
@@ -50,7 +54,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - name: Verify F2.1, F2.2, F2.3b and F2.3c independent safety gates
+      - name: Verify F2.1 to F2.4 independent safety gates
         shell: bash
         run: |
           set -euo pipefail
@@ -58,6 +62,7 @@ jobs:
           python3 .github/scripts/test_ocfilo_f2_pilot.py
           python3 .github/scripts/test_ocfilo_f2_sched.py
           python3 .github/scripts/test_ocfilo_f2_dag.py
+          python3 .github/scripts/test_ocfilo_f2_integrate.py
       - name: Reject inadvertent runtime authorization
         shell: bash
         run: |
