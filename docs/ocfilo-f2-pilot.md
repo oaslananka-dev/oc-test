@@ -150,7 +150,11 @@ that calls it is a separate change.
   `execute` mode, fails the run unless every task `SUCCEEDED`.
 - `concurrency: ocfilo-f2-dag-run` allows one DAG run at a time, so quota is
   not shared by overlapping runs.
-- Capacity stays at 3. Raising it needs a measured 5-worker run.
+- Capacity is capped per registered plan in `DAG_PLANS`: `dag-pilot` stays at
+  3 (validated). `capacity-5` (`examples/ocfilo-f2-capacity-5.json`, five
+  independent tasks) is capped at 5 and exists only to take the 5-worker
+  measurement. A cap is raised only after a clean measured run at that width;
+  asking for more than a plan's cap is rejected.
 
 ## Manual acceptance
 

@@ -16,6 +16,7 @@ from ocfilo_f2_pilot import SHA, validate_evidence
 
 # Raise only after a measured 5-worker (then 10-worker) capacity run.
 VALIDATED_CAPACITY = 3
+HARD_CAPACITY = 10  # planner limit; a plan must register its own cap below this
 MAX_ATTEMPT_BUDGET = 3
 MAX_EVIDENCE = 200
 MAX_EVIDENCE_BYTES = 16384
@@ -48,11 +49,12 @@ def _collect(raw_evidence, expected, sha):
 
 
 def schedule(raw_plan, raw_evidence, sha, capacity=VALIDATED_CAPACITY,
-             running=(), max_attempts=2):
+             running=(), max_attempts=2, max_capacity=VALIDATED_CAPACITY):
     summary = validate_plan(raw_plan)
     if not isinstance(sha, str) or not SHA.fullmatch(sha):
         raise ValueError("Exact 40-hex checkout SHA required")
-    _bounded(capacity, VALIDATED_CAPACITY, "capacity")
+    _bounded(max_capacity, HARD_CAPACITY, "max_capacity")
+    _bounded(capacity, max_capacity, "capacity")
     _bounded(max_attempts, MAX_ATTEMPT_BUDGET, "max_attempts")
     order = [t for wave in summary["waves"] for t in wave["tasks"]]  # topological
     expected = {t["task_id"]: {
