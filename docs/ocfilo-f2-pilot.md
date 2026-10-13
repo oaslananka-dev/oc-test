@@ -1,0 +1,67 @@
+# ocfilo F2.2 - Bounded manual OpenCode pilot
+
+**Scope:** This is a limited proving ground, NOT a universal 10-agent executor.
+No native Multica Autopilot or webhook is created. Existing F1 workflow,
+observer, repair queue, publisher checks and protection rules remain unchanged.
+
+## Exact runner design
+
+- Workflow: `.github/workflows/ocfilo-f2-worker-pilot.yml`.
+- **Only explicit workflow_dispatch on protected main.** One planning job
+  validates GitHub repository name and numeric ID, Git ref, event type,
+  checkout SHA, run ID and run attempt; it selects exactly 1, 2 or 3 reviewed
+  task IDs. No schedule, push trigger, webhook or bridge.
+- Each selected task gets **its own independent Ubuntu 24.04 matrix runner**,
+  not a shared mutable worktree. Max parallel: 3.
+- Task/issue/identity contract is static and reviewed in
+  `examples/ocfilo-f2-execution-pilot.json`: three independent tasks,
+  issue #10, `opencode/big-pickle`, `build`, `actions-readonly`, one exact
+  file under `playground/f2/` per task. No custom MCP/plugin/credential.
+- `run_mode=config-only` (default): validate, create config and produce
+  metadata. **No model call**. `run_mode=execute`: install pinned
+  `@opencode/cli@2.0.27` and run one assigned OpenCode prompt per runner.
+  No paid model/API token fallback if provider denies access or rate limits.
+- `contents: read`, checkout `persist-credentials: false`,
+  no `GH_TOKEN` / PAT / deployment secrets provided to OpenCode. OpenCode
+  itself executes inside an ephemeral GitHub-hosted runner: this is bounded
+  CI execution, not a cryptographic isolation boundary.
+- Result gate validates exact SHA/run attempt/owner, unchanged trusted config,
+  Git worktree changes limited to **only the one assigned regular file**,
+  bounded file and patch size, non-binary patch, git diff --check and agent
+  success. Any failure rejects publication.
+- Artifacts contain `result.json` with repo ID, issue, task, run/attempt,
+  SHA, outcome and ownership; successful execution also provides a scoped
+  `changes.patch`. Raw model output logs are NOT uploaded. Artifacts are
+  authenticated via native GitHub Actions run/attempt provenance when
+  consumed; they are not independently signed.
+- The workflow **never** pushes, opens a PR, merges, deploys, launches
+  another workflow, starts Multica or updates external systems.
+
+## Manual acceptance
+
+1. After code review and green baseline, F2.2 tests and Semgrep, merge
+   the PR by expected head SHA. Do not bypass `main` protection.
+2. GitHub Actions  `ocfilo F2 Bounded Manual OpenCode Pilot`  Run
+   workflow  `main`  `worker_count=1`  `config-only`. Confirm the
+   trusted Actions run produces one `CONFIG_ONLY` evidence artifact
+   with the current checkout SHA and **no patch**.
+3. Repeat with `worker_count=1`, `run_mode=execute`. Expect one
+   `SUCCEEDED` patch **only if** free model access works, and confirm
+   its exact file path. On provider error, record blocker; never invent
+   success or switch to a paid model/token.
+4. Only after successful 1-worker execution, choose `worker_count=3`
+   and `execute`. Verify three independent jobs run concurrently when
+   runner quota allows and produce three disjoint scoped patches, run
+   provenance, and no GitHub changes. Recheck GitHub runner quota/rate limit.
+5. Independently read artifact run ID, job conclusion, current head SHA,
+   issue number, exact file owner. Fail closed if any mismatch or missing
+   check; no automatic combining/publishing or deploy.
+
+## Next F2 acceptance gates
+
+- F2.3: measured capacity, fair task lease/queues, bounded retries,
+  error taxonomy, cancel support and cost/rate-limit budget before 510.
+- F2.4: cross-job artifact verification, deterministic conflict handling,
+  integration tests and human-reviewed PR, never automatic merge.
+- Multica remains optional. Previous native Autopilot safety denial is
+  still outstanding in GitHub Issue #6 and must not be bypassed.

@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "plan_id": "f2-exec",
+  "repository": "oaslananka-dev/oc-test",
+  "run_mode": "plan-only",
+  "max_parallel": 3,
+  "tasks": [
+    {
+      "task_id": "f2-exec-alpha",
+      "prompt": "Create playground/f2/alpha.txt containing three short, useful observations about repository build/test structure. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/alpha.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-exec-beta",
+      "prompt": "Create playground/f2/beta.txt containing three brief observations about how repository documentation is organized. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/beta.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-exec-gamma",
+      "prompt": "Create playground/f2/gamma.txt containing three brief observations about existing repository quality checks. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/gamma.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    }
+  ]
+}

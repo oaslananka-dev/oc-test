@@ -1,0 +1,130 @@
+name: ocfilo F2 Bounded Manual OpenCode Pilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      worker_count:
+        description: 'Human-authorized independent sandbox workers (1 to 3)'
+        type: choice
+        required: true
+        default: '1'
+        options: ['1', '2', '3']
+      run_mode:
+        description: 'First run config-only. Execute contacts free OpenCode model.'
+        type: choice
+        required: true
+        default: 'config-only'
+        options: ['config-only', 'execute']
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  authorize-plan:
+    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Trusted checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prove exact main SHA and generate approved matrix
+        id: plan
+        shell: bash
+        env:
+          F2_WORKER_COUNT: ${{ inputs.worker_count }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_f2_pilot.py matrix \
+            --worker-count "$F2_WORKER_COUNT" \
+            --out "$GITHUB_OUTPUT"
+      - name: Run offline safety regression on checked out code
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/test_ocfilo_f2_pilot.py
+
+  worker:
+    needs: authorize-plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.authorize-plan.outputs.matrix) }}
+    env:
+      F2_TASK_ID: ${{ matrix.task_id }}
+      F2_ALLOWED_PATH: ${{ matrix.allowed_path }}
+      F2_RUN_MODE: ${{ inputs.run_mode }}
+    steps:
+      - name: Trusted main exact SHA checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Prepare approved OpenCode task with immutable provenance
+        id: prepare
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ocfilo_f2_pilot.py prepare --task-id "$F2_TASK_ID"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          obj = json.loads(Path(os.environ["RUNNER_TEMP"], "f2-context.json").read_text())
+          assert obj["allowed_paths"] == [os.environ["F2_ALLOWED_PATH"]]
+          assert obj["checkout_sha"] == os.environ["GITHUB_SHA"]
+          assert obj["publication_allowed"] is False
+          PY
+      - name: Setup Node for bounded OpenCode only
+        if: inputs.run_mode == 'execute'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned OpenCode
+        if: inputs.run_mode == 'execute'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --global '@opencode/cli@2.0.27'
+          opencode --version
+          opencode debug config > "$RUNNER_TEMP/f2-resolved-config.txt"
+      - name: Run ONE scoped OpenCode task
+        if: inputs.run_mode == 'execute'
+        id: opencode
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode run --standalone --model opencode/big-pickle --agent build \
+            --format default "$(cat "$RUNNER_TEMP/f2-prompt.txt")" \
+            > "$RUNNER_TEMP/f2-agent.log" 2>&1
+      - name: Produce per-task bounded non-publishing evidence
+        if: always() && steps.prepare.outcome == 'success'
+        shell: bash
+        env:
+          F2_AGENT_STEP: ${{ steps.opencode.outcome }}
+        run: |
+          set -euo pipefail
+          outcome="$F2_AGENT_STEP"
+          if [ "$F2_RUN_MODE" = 'config-only' ]; then
+            outcome='config-only'
+          fi
+          python3 .github/scripts/ocfilo_f2_pilot.py finalize \
+            --task-id "$F2_TASK_ID" \
+            --agent-outcome "$outcome" \
+            --out "$RUNNER_TEMP/f2-artifact"
+      - name: Upload exact-SHA task evidence ONLY
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ocfilo-f2-${{ github.run_id }}-${{ matrix.slot }}
+          path: ${{ runner.temp }}/f2-artifact/
+          retention-days: 7
+          if-no-files-found: warn
