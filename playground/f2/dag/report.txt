@@ -1,0 +1,3 @@
+Build: there is no local build system; the project is a GitHub Actions testbed where oc.yml installs the pinned OpenCode V2 CLI (npm) and runs it against Python helper scripts in .github/scripts.
+Tests: self-contained Python unittest suites (test_ocfilo_*.py) executed with "python3 <script>.py -v" on ubuntu-24.04, each gated by a dedicated workflow under .github/workflows (e.g. baseline, dag, worker, merge-policy).
+Structure: repeated reusable orchestration scripts (ocfilo_f2_dag.py, ocfilo_f2_sched.py, ocfilo_worker.py, etc.) pair with per-area test workflows triggered on pull_request paths and workflow_dispatch; results are uploaded as artifacts and never pushed or merged.

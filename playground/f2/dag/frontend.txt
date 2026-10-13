@@ -1,0 +1,15 @@
+Observations on repository documentation organization
+
+1. Top-level README.md acts as the single entry point: it explains purpose,
+   parameters, and usage, then points readers into deeper material rather
+   than containing everything itself.
+
+2. Detailed docs live under docs/ as one Markdown file per feature or phase,
+   using a phase/feature-prefixed naming scheme (e.g. ocfilo-f2.md,
+   ocfilo-f2-pilot.md, ocfilo-main-protection-plan.md), so related documents
+   sort together and versioned stages are easy to find.
+
+3. Docs reference concrete repository paths instead of duplicating content:
+   they cite .github/scripts/, .github/workflows/, .opencode/skills/, and the
+   examples/ directory (which holds sample JSON inputs), keeping prose and
+   executable artifacts in sync.

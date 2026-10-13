@@ -1,0 +1,13 @@
+Three observations about the repository Python scripts:
+
+1. All 30 files in .github/scripts start with the `#!/usr/bin/env python3`
+   shebang and are standalone CLI tools; about 11 parse arguments with the
+   standard-library `argparse` module.
+
+2. The scripts are paired with `test_*.py` companions and rely on the stdlib
+   `unittest` framework (14 files reference it), keeping the test suite
+   dependency-free.
+
+3. They consistently use only the standard library (json, os, pathlib, etc.),
+   with no `from __future__` imports, and enforce fail-closed validation of
+   plans, scopes, and evidence before acting.

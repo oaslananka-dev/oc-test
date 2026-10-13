@@ -1,0 +1,7 @@
+Repository layout observations:
+
+1. Automation logic lives under .github/scripts (Python modules and their tests), with matching CI wired up through many focused workflow files in .github/workflows.
+
+2. Example run inputs are collected in examples/, including the F2 plan, execution pilot, and DAG pilot JSON fixtures.
+
+3. Documentation and agent configuration are kept separate: prose lives in docs/, while OpenCode skills are defined under .opencode/skills/runner-check.
