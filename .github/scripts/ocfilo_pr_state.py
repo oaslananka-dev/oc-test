@@ -209,8 +209,8 @@ def main():
     parser.add_argument("--ledger")
     parser.add_argument("--decision", required=True)
     args = parser.parse_args()
-    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8"))
-    ledger = json.loads(Path(args.ledger).read_text(encoding="utf-8")) if args.ledger else {}
+    snapshot = json.loads(Path(args.snapshot).read_text(encoding="utf-8-sig"))
+    ledger = json.loads(Path(args.ledger).read_text(encoding="utf-8-sig")) if args.ledger else {}
     decision = decide(snapshot, ledger)
     Path(args.decision).write_text(json.dumps(decision, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(decision, indent=2))
