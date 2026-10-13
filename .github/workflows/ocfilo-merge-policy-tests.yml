@@ -1,0 +1,20 @@
+name: ocfilo Merge Policy Assurance Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_merge_policy.py'
+      - '.github/scripts/test_ocfilo_merge_policy.py'
+      - '.github/workflows/ocfilo-merge-policy-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify strict distinction between F1 check readiness and policy
+        run: python3 .github/scripts/test_ocfilo_merge_policy.py -v
