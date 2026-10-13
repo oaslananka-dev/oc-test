@@ -205,7 +205,7 @@ class FailClosedTests(unittest.TestCase):
         self.reject([fail(B, "TIMEOUT"), fail(B, "NETWORK")])
 
     def test_capacity_bounds(self):
-        for bad in (0, 4, -1, True, "3", None):
+        for bad in (0, 6, -1, True, "3", None):
             self.reject([], capacity=bad)
 
     def test_running_must_be_known_and_unblocked(self):

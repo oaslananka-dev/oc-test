@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "plan_id": "f2-cap10",
+  "repository": "oaslananka-dev/oc-test",
+  "run_mode": "plan-only",
+  "max_parallel": 10,
+  "tasks": [
+    {
+      "task_id": "f2-cap10-a",
+      "prompt": "Create playground/f2/dag/cap10-a.txt containing three short observations about the repository layout. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-a.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-b",
+      "prompt": "Create playground/f2/dag/cap10-b.txt containing three short observations about the repository Python scripts. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-b.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-c",
+      "prompt": "Create playground/f2/dag/cap10-c.txt containing three short observations about how repository documentation is organized. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-c.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-d",
+      "prompt": "Create playground/f2/dag/cap10-d.txt containing three short observations about the repository GitHub Actions workflows. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-d.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-e",
+      "prompt": "Create playground/f2/dag/cap10-e.txt containing three short observations about existing repository quality checks. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-e.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-f",
+      "prompt": "Create playground/f2/dag/cap10-f.txt containing three short observations about the repository test files. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-f.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-g",
+      "prompt": "Create playground/f2/dag/cap10-g.txt containing three short observations about the repository example manifests. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-g.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-h",
+      "prompt": "Create playground/f2/dag/cap10-h.txt containing three short observations about the repository docs folder. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-h.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-i",
+      "prompt": "Create playground/f2/dag/cap10-i.txt containing three short observations about the repository configuration files. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-i.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    },
+    {
+      "task_id": "f2-cap10-j",
+      "prompt": "Create playground/f2/dag/cap10-j.txt containing three short observations about the repository naming conventions. Do not modify other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/cap10-j.txt"
+      ],
+      "depends_on": [],
+      "issue_number": 10
+    }
+  ]
+}

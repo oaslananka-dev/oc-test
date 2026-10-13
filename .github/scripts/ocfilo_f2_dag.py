@@ -21,6 +21,7 @@ from ocfilo_f2_sched import (MAX_EVIDENCE, load_evidence, schedule,
 DAG_PLANS = {
     "dag-pilot": ("examples/ocfilo-f2-dag-pilot.json", "f2-dag", VALIDATED_CAPACITY),
     "capacity-5": ("examples/ocfilo-f2-capacity-5.json", "f2-cap5", 5),
+    "capacity-10": ("examples/ocfilo-f2-capacity-10.json", "f2-cap10", 10),
 }
 CAPS = {plan_id: cap for _, plan_id, cap in DAG_PLANS.values()}
 DAG_PREFIX = "playground/f2/dag/"
