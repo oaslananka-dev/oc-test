@@ -36,12 +36,13 @@ def _collect(raw_evidence, expected, sha):
         validate_evidence(item, expected)
         if item["checkout_sha"] != sha:
             raise ValueError("Evidence belongs to a different checkout SHA")
-        key = (item["task_id"], item["workflow_run_id"], item["run_attempt"])
+        key = (item["task_id"], item["workflow_run_id"], item["run_attempt"],
+               item.get("round", 1))
         if key in seen and seen[key] != item:
             raise ValueError("Conflicting evidence for the same task run")
         seen[key] = item
     by_task = {}
-    for (tid, run, attempt), item in sorted(seen.items()):
+    for (tid, *_), item in sorted(seen.items()):
         by_task.setdefault(tid, []).append(item)
     return by_task
 

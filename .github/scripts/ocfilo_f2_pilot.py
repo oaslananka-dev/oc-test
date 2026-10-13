@@ -26,6 +26,7 @@ TASKS = {
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 MAX_BYTES = 32768
 DEADLINES = (300, 600, 900)
+MAX_ROUNDS = 6
 LOG_TAIL_BYTES = 65536
 # Terminal outcomes recorded in evidence. PENDING/READY/RUNNING exist only as
 # live GitHub job states; BLOCKED belongs to the future DAG runtime.
@@ -126,6 +127,7 @@ def validate_evidence(ev, expected=None):
               and ev["issue_number"] == want["issue_number"]
               and ev["model"] == want["model"] and ev["identity"] == want["identity"]
               and ev["published"] is False
+              and _bounded_int(ev.get("round", 1), 1, MAX_ROUNDS)
               and ev["allowed_paths"] == want["allowed_paths"]
               and isinstance(ev["checkout_sha"], str) and SHA.fullmatch(ev["checkout_sha"])
               and ev["idempotency_key"] == idempotency_key(ev["checkout_sha"], ev["task_id"])
@@ -214,15 +216,16 @@ def make_matrix(raw, count, env, actual_sha, deadline=600):
     ]}
 
 
-def prepare(raw, task_id, env, actual_sha, temporary):
-    tasks = read_manifest(raw)
+def prepare(raw, task_id, env, actual_sha, temporary, tasks=None, plan_id="f2-exec"):
+    """tasks: already-validated manifest items; default is the fixed F2.2 pilot."""
+    tasks = read_manifest(raw) if tasks is None else tasks
     evidence = validate_context(env, actual_sha)
     if task_id not in tasks:
         raise ValueError("Unknown F2 pilot task")
     task = tasks[task_id]
     temp = Path(temporary)
     temp.mkdir(parents=True, exist_ok=True)
-    allow = TASKS[task_id]
+    allow = task["allowed_paths"][0]
     prompt = (
         task["prompt"] + "\n"
         "Sandbox: change ONLY the exact file " + allow +
@@ -239,7 +242,7 @@ def prepare(raw, task_id, env, actual_sha, temporary):
         hashlib.sha256(Path("opencode.json").read_bytes()).hexdigest(), encoding="ascii")
     result = dict(
         schema_version=1, repository=REPO, repository_id=int(REPO_ID),
-        plan_id="f2-exec", issue_number=10, task_id=task_id,
+        plan_id=plan_id, issue_number=task["issue_number"], task_id=task_id,
         model=MODEL, identity="actions-readonly",
         allowed_paths=[allow], checkout_sha=evidence["head_sha"],
         workflow_run_id=evidence["run_id"],
@@ -251,14 +254,16 @@ def prepare(raw, task_id, env, actual_sha, temporary):
     return result
 
 
-def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None):
+def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None,
+                      owners=None):
+    owners = TASKS if owners is None else owners
     temp = Path(temporary)
     result = json.loads((temp / "f2-context.json").read_text(encoding="utf-8"))
     expected = validate_context(env, git("rev-parse", "HEAD"))
     if (result["checkout_sha"] != expected["head_sha"]
             or result["workflow_run_id"] != expected["run_id"]
             or result["run_attempt"] != expected["attempt"]
-            or result["allowed_paths"] != [TASKS[task_id]]
+            or result["allowed_paths"] != [owners[task_id]]
             or result["task_id"] != task_id):
         raise WorkerError("Result provenance / file owner mismatch")
     config = Path("opencode.json")
@@ -283,7 +288,7 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None
         else:
             raise WorkerError("Unexpected git status operation; deny changes",
                               "SCOPE_VIOLATION")
-    allowed = TASKS[task_id]
+    allowed = owners[task_id]
     if any(p != allowed for p in changed):
         raise WorkerError("Agent wrote outside exact assigned file", "SCOPE_VIOLATION")
     if agent_outcome != "success":
@@ -307,16 +312,21 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None
 
 
 def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact,
-             agent_run=None):
+             agent_run=None, tasks=None, round_no=1):
     """Persist fail-closed evidence even when model execution fails."""
-    tasks = read_manifest(raw)
+    tasks = read_manifest(raw) if tasks is None else tasks
     validate_context(env, actual_sha)
     if task_id not in tasks:
         raise ValueError("Unknown task")
+    if type(round_no) is not int or not 1 <= round_no <= MAX_ROUNDS:
+        raise ValueError("Invalid dispatch round")
+    owners = {t: x["allowed_paths"][0] for t, x in tasks.items()}
     evidence = {"schema_version": 2, "repository": REPO,
-                "repository_id": int(REPO_ID), "issue_number": 10,
+                "repository_id": int(REPO_ID),
+                "issue_number": tasks[task_id]["issue_number"],
                 "model": MODEL, "identity": "actions-readonly",
-                "allowed_paths": [TASKS[task_id]], "task_id": task_id,
+                "allowed_paths": [owners[task_id]], "task_id": task_id,
+                "round": round_no,
                 "checkout_sha": actual_sha,
                 "idempotency_key": idempotency_key(actual_sha, task_id),
                 "workflow_run_id": int(env["GITHUB_RUN_ID"]),
@@ -341,7 +351,8 @@ def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact,
             if outcome != "success":
                 failure = classify_failure(outcome, run["exit_code"], run["seconds"],
                                            run["deadline"], read_log_tail(temporary))
-            patch, _ = evaluate_worktree(task_id, env, temporary, outcome, failure)
+            patch, _ = evaluate_worktree(task_id, env, temporary, outcome, failure,
+                                         owners)
             (dest / "changes.patch").write_bytes(patch)
             evidence["worker_outcome"] = "SUCCEEDED"
             evidence["scope_verified"] = True
@@ -353,7 +364,8 @@ def finalize(raw, task_id, env, actual_sha, temporary, outcome, artifact,
         evidence["retryable"] = cls in RETRYABLE
         if cls == "CANCELLED":
             evidence["worker_outcome"] = "CANCELLED"
-    validate_evidence(evidence)
+    validate_evidence(evidence, {t: {k: x[k] for k in (
+        "allowed_paths", "issue_number", "model", "identity")} for t, x in tasks.items()})
     (dest / "result.json").write_text(
         json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     if error:
