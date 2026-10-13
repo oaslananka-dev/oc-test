@@ -345,6 +345,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("pattern: " + base + "*", self.ROUND)
         self.assertIn("pattern: " + base + "*", self.RUN)
 
+    def test_failure_log_tail_is_bounded_and_command_safe(self):
+        self.assertIn("tail -n 30", self.ROUND)
+        self.assertIn("cut -c1-200", self.ROUND)
+        self.assertIn("sed 's/::/: :/g'", self.ROUND)
+        self.assertIn("steps.opencode.outcome == 'failure'", self.ROUND)
+        self.assertNotIn("path: ${{ runner.temp }}/f2-agent", self.ROUND)  # log never uploaded
+
     def test_complete_required_only_when_executing(self):
         self.assertIn("--require-complete", self.RUN)
         self.assertIn("'execute'", self.RUN)
