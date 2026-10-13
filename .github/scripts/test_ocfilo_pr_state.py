@@ -87,6 +87,74 @@ class Tests(unittest.TestCase):
         s["checks"]["check_runs"].append(bogus)
         s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+    def test_nonrequired_failing_check_does_not_dispatch(self):
+        s=snapshot()
+        s["checks"]["check_runs"].append({
+            "id": 900, "name": "irrelevant-third-party",
+            "head_sha": SHA, "status": "completed", "conclusion": "failure",
+            "app_slug": "unknown-provider", "app_id": 999,
+        })
+        s["checks"]["total_count"] += 1
+        d=decide(s)
+        self.assertEqual(d["state"], "NEEDS_HUMAN")
+        self.assertIn("irrelevant-third-party", d["failing_checks"])
+        self.assertFalse(d["dispatch_allowed"])
+        self.assertIsNone(d["repair_key"])
+
+    def test_mixed_trusted_and_untrusted_failure_does_not_dispatch(self):
+        s=snapshot()
+        s["checks"]["check_runs"][0]["conclusion"]="failure"
+        s["checks"]["check_runs"].append({
+            "id": 901, "name": "unknown-scan",
+            "head_sha": SHA, "status": "completed", "conclusion": "failure",
+            "app_slug": "untrusted", "app_id": 456,
+        })
+        s["checks"]["total_count"] += 1
+        d=decide(s)
+        self.assertEqual(d["state"], "NEEDS_HUMAN")
+        self.assertFalse(d["dispatch_allowed"])
+        self.assertIsNone(d["repair_key"])
+
+    def test_green_nonrequired_check_preserves_ready(self):
+        s=snapshot()
+        s["checks"]["check_runs"].append({
+            "id": 902, "name": "other-green",
+            "head_sha": SHA, "status": "completed", "conclusion": "success",
+            "app_slug": "other", "app_id": 456,
+        })
+        s["checks"]["total_count"] += 1
+        self.assertEqual(decide(s)["state"], "READY_FOR_MERGE")
+
+    def test_nonrequired_pending_check_blocks_without_dispatch(self):
+        s=snapshot()
+        s["checks"]["check_runs"].append({
+            "id": 903, "name": "other-pending",
+            "head_sha": SHA, "status": "in_progress", "conclusion": None,
+            "app_slug": "other", "app_id": 456,
+        })
+        s["checks"]["total_count"] += 1
+        d=decide(s)
+        self.assertEqual(d["state"], "WAITING_CHECKS")
+        self.assertFalse(d["dispatch_allowed"])
+
+    def test_status_failure_cannot_set_repair_key(self):
+        s=snapshot()
+        s["statuses"]["statuses"]=[{
+            "context": "unverified-status", "state": "error", "sha": SHA,
+        }]
+        d=decide(s)
+        self.assertEqual(d["state"], "NEEDS_HUMAN")
+        self.assertFalse(d["dispatch_allowed"])
+        self.assertIsNone(d["repair_key"])
+
+    def test_trusted_required_failure_still_eligible(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["conclusion"]="failure"
+        d=decide(s)
+        self.assertEqual(d["state"], "REPAIR_REQUIRED")
+        self.assertTrue(d["dispatch_allowed"])
+        self.assertIsNotNone(d["repair_key"])
+
     def test_missing_universal_baseline_holds_merge(self):
         s=snapshot()
         s["checks"]["check_runs"].pop()
@@ -175,7 +243,10 @@ class Tests(unittest.TestCase):
         s["statuses"]["statuses"]=[
             {"context":"bot","state":"failure","created_at":"2026-10-13T03:02:00Z"},
             {"context":"bot","state":"success","created_at":"2026-10-13T03:01:00Z"}]
-        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+        d=decide(s)
+        self.assertEqual(d["state"],"NEEDS_HUMAN")
+        self.assertFalse(d["dispatch_allowed"])
+        self.assertIsNone(d["repair_key"])
     def test_pending_review(self):
         s=snapshot();s["pr"]["requested_reviewers"]=[{"login":"reviewer"}]
         self.assertEqual(decide(s)["state"],"REVIEW_PENDING")
@@ -194,7 +265,9 @@ class Tests(unittest.TestCase):
         with self.assertRaises(ValueError):decide(s)
     def test_commit_status_failure(self):
         s=snapshot();s["statuses"]["statuses"]=[{"context":"bot-review","state":"failure","sha":SHA}]
-        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+        d=decide(s)
+        self.assertEqual(d["state"],"NEEDS_HUMAN")
+        self.assertFalse(d["dispatch_allowed"])
     def test_check_legacy_skip_block(self):
         s=snapshot();s["checks"]["check_runs"][0]["conclusion"]="skipped"
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
