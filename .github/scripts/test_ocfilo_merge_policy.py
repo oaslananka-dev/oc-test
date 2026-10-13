@@ -28,7 +28,7 @@ class PolicyAuditTests(unittest.TestCase):
         self.assertEqual(audit(p,b,r,t)["policy_status"],"GITHUB_POLICY_DETAILS_NEED_VERIFICATION")
     def test_active_ruleset_needs_detail_review(self):
         p,b,r,t=sample();r.append({"enforcement":"active"})
-        self.assertEqual(audit(p,b,r,t)["policy_status"],"GITHUB_POLICY_DETAILS_NEED_VERIFICATION")
+        self.assertEqual(audit(p,b,r,t)["policy_status"],"ADDITIONAL_ACTIVE_RULESETS_REQUIRE_REVIEW")
     @staticmethod
     def protected_evidence():
         return {
