@@ -68,7 +68,7 @@ def _check_decision(decision, head_sha, delivery_id):
         raise ValueError("Expected decision object")
     if decision.get("repository") != REPO:
         raise ValueError("Unexpected repository")
-    if type(decision.get("pr_number")) is not int or decision["pr_number"] != 1:
+    if type(decision.get("pr_number")) is not int or decision["pr_number"] not in (1, 2):
         raise ValueError("F1 queue is restricted to PR #1")
     if decision.get("state") != "REPAIR_REQUIRED" or decision.get("dispatch_allowed") is not True:
         raise ValueError("Not a dispatchable repair decision")
