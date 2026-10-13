@@ -11,7 +11,7 @@ on:
         type: choice
         required: true
         default: 'dag-pilot'
-        options: ['dag-pilot']
+        options: ['dag-pilot', 'capacity-5']
       run_mode:
         description: 'config-only runs round 1 without a model call. execute contacts the free OpenCode model.'
         type: choice
@@ -19,11 +19,11 @@ on:
         default: 'config-only'
         options: ['config-only', 'execute']
       capacity:
-        description: 'Max concurrent workers per round (validated up to 3)'
+        description: 'Max concurrent workers per round (3 validated; 4-5 only for capacity-5)'
         type: choice
         required: true
         default: '3'
-        options: ['1', '2', '3']
+        options: ['1', '2', '3', '4', '5']
       agent_deadline_seconds:
         description: 'Hard per-agent deadline in seconds'
         type: choice

@@ -16,15 +16,21 @@ from ocfilo_f2_plan import plan as validate_plan
 from ocfilo_f2_sched import (MAX_EVIDENCE, load_evidence, schedule,
                              VALIDATED_CAPACITY)
 
-DAG_PLANS = {"dag-pilot": ("examples/ocfilo-f2-dag-pilot.json", "f2-dag")}
+# name -> (manifest, plan_id, max capacity). Raise a cap only after a measured run
+# at that width; capacity-5 exists to take that measurement.
+DAG_PLANS = {
+    "dag-pilot": ("examples/ocfilo-f2-dag-pilot.json", "f2-dag", VALIDATED_CAPACITY),
+    "capacity-5": ("examples/ocfilo-f2-capacity-5.json", "f2-cap5", 5),
+}
+CAPS = {plan_id: cap for _, plan_id, cap in DAG_PLANS.values()}
 DAG_PREFIX = "playground/f2/dag/"
 
 
 def read_dag(raw, plan_id=None):
     """Validate a reviewed manifest; return {task_id: manifest item}."""
     validate_plan(raw)
-    if plan_id is not None and raw["plan_id"] != plan_id:
-        raise ValueError("Manifest plan_id does not match the registered plan")
+    if raw["plan_id"] not in CAPS or (plan_id is not None and raw["plan_id"] != plan_id):
+        raise ValueError("Manifest plan_id does not match a registered plan")
     tasks = {}
     for item in raw["tasks"]:
         paths = item["allowed_paths"]
@@ -43,7 +49,7 @@ def read_dag(raw, plan_id=None):
 def _plan(name):
     if name not in DAG_PLANS:
         raise ValueError("Unregistered DAG plan")
-    path, plan_id = DAG_PLANS[name]
+    path, plan_id, _ = DAG_PLANS[name]
     raw = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     read_dag(raw, plan_id)
     return raw
@@ -61,7 +67,7 @@ def round_matrix(raw, evidence, env, sha, round_no, capacity, deadline):
     _check_round(round_no)
     if type(deadline) is not int or deadline not in pilot.DEADLINES:
         raise ValueError("Unapproved per-agent deadline")
-    result = schedule(raw, evidence, sha, capacity)
+    result = schedule(raw, evidence, sha, capacity, max_capacity=CAPS[raw["plan_id"]])
     if any(e.get("round", 1) >= round_no for e in evidence):
         raise ValueError("Evidence from a round that has not finished")
     paths = {t["task_id"]: t["allowed_paths"][0]

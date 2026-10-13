@@ -52,7 +52,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(tasks[REPORT]["depends_on"], [BACKEND, FRONTEND])
 
     def test_registry_matches_manifest_file(self):
-        for name, (path, plan_id) in dag.DAG_PLANS.items():
+        for name, (path, plan_id, cap) in dag.DAG_PLANS.items():
             raw = json.loads((ROOT / path).read_text(encoding="utf-8-sig"))
             self.assertEqual(raw["plan_id"], plan_id)
             dag.read_dag(raw, plan_id)
@@ -240,6 +240,49 @@ class DagWorkerTests(unittest.TestCase):
             (ROOT / "examples/ocfilo-f2-execution-pilot.json").read_text(encoding="utf-8-sig")))), 3)
 
 
+class CapacityPlanTests(unittest.TestCase):
+    CAP5 = json.loads((ROOT / "examples/ocfilo-f2-capacity-5.json").read_text(encoding="utf-8-sig"))
+
+    def test_caps_are_registered_per_plan(self):
+        self.assertEqual(dag.CAPS, {"f2-dag": 3, "f2-cap5": 5})
+
+    def test_capacity_5_manifest_is_five_independent_tasks(self):
+        tasks = dag.read_dag(self.CAP5)
+        self.assertEqual(len(tasks), 5)
+        self.assertTrue(all(t["depends_on"] == [] for t in tasks.values()))
+
+    def test_five_dispatched_only_for_capacity_5_plan(self):
+        m, _ = dag.round_matrix(self.CAP5, [], context(), SHA, 1, 5, 300)
+        self.assertEqual(len(m["include"]), 5)
+        self.assertEqual(len({x["allowed_path"] for x in m["include"]}), 5)
+        with self.assertRaises(ValueError):
+            dag.round_matrix(RAW, [], context(), SHA, 1, 5, 300)
+
+    def test_never_above_plan_cap(self):
+        for cap in (6, 10, 0, True):
+            with self.assertRaises(ValueError):
+                dag.round_matrix(self.CAP5, [], context(), SHA, 1, cap, 300)
+
+    def test_lower_capacity_still_bounds_dispatch(self):
+        m, _ = dag.round_matrix(self.CAP5, [], context(), SHA, 1, 2, 300)
+        self.assertEqual(len(m["include"]), 2)
+
+    def test_unregistered_plan_id_rejected_even_if_valid_plan(self):
+        raw = copy.deepcopy(self.CAP5)
+        raw["plan_id"] = "f2-cap9"
+        for t in raw["tasks"]:
+            t["task_id"] = t["task_id"].replace("f2-cap5", "f2-cap9")
+        with self.assertRaises(ValueError):
+            dag.read_dag(raw)
+
+    def test_scheduler_cap_parameter_is_bounded(self):
+        for bad in (0, 11, True):
+            with self.assertRaises(ValueError):
+                sched.schedule(self.CAP5, [], SHA, 1, max_capacity=bad)
+        with self.assertRaises(ValueError):
+            sched.schedule(self.CAP5, [], SHA, 4, max_capacity=3)
+
+
 class WorkflowContractTests(unittest.TestCase):
     RUN = (ROOT / ".github/workflows/ocfilo-f2-dag-run.yml").read_text(encoding="utf-8")
     ROUND = (ROOT / ".github/workflows/ocfilo-f2-dag-round.yml").read_text(encoding="utf-8")
@@ -279,10 +322,10 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_deadline_cap_and_serialization(self):
         self.assertIn("timeout --signal=TERM --kill-after=20", self.ROUND)
-        self.assertIn("max-parallel: 3", self.ROUND)
+        self.assertIn("max-parallel: 5", self.ROUND)
         self.assertIn("group: ocfilo-f2-dag-run", self.RUN)
         self.assertIn("cancel-in-progress: false", self.RUN)
-        self.assertIn("options: ['1', '2', '3']", self.RUN)
+        self.assertIn("options: ['1', '2', '3', '4', '5']", self.RUN)
         self.assertIn("options: ['300', '600', '900']", self.RUN)
 
     def test_artifacts_are_round_scoped_and_matchable(self):
