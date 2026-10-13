@@ -14,9 +14,13 @@ REPO = "oaslananka-dev/oc-test"
 BRANCH = re.compile(r"ocfilo/f1-[a-z0-9-]+\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 REQUIRED = frozenset({"baseline", "fixture-quality", "semgrep-cloud-platform/scan"})
-REQUIRED_APPS = {"baseline": "github-actions",
-                 "fixture-quality": "github-actions",
-                 "semgrep-cloud-platform/scan": "semgrep-code-oaslananka"}
+# A matching check name/slug is insufficient: require the real GitHub App ID.
+# These IDs were verified using live F1 PR check-runs on 2026-10-13.
+REQUIRED_APPS = {
+    "baseline": ("github-actions", 15368),
+    "fixture-quality": ("github-actions", 15368),
+    "semgrep-cloud-platform/scan": ("semgrep-code-oaslananka", 4384945),
+}
 MAX_REPAIRS = 3
 DONE = {"success"}
 SKIPPED = {"neutral", "skipped"}
@@ -80,12 +84,19 @@ def decide(snapshot, ledger=None):
         if not isinstance(name, str) or not name:
             raise ValueError("unnamed check-run")
         if name in REQUIRED_APPS:
-            app = check.get("app_slug")
-            if app is None and isinstance(check.get("app"), dict):
-                app = check["app"].get("slug")
-            # A check with a required name is not authoritative unless the
-            # identity of the GitHub App that reported it is expected.
-            if app != REQUIRED_APPS[name]:
+            expected_slug, expected_id = REQUIRED_APPS[name]
+            app_slug = check.get("app_slug")
+            app_id = check.get("app_id")
+            if isinstance(check.get("app"), dict):
+                if app_slug is None:
+                    app_slug = check["app"].get("slug")
+                if app_id is None:
+                    app_id = check["app"].get("id")
+            # GitHub allows identical check names from distinct Apps. Treat a
+            # name as required evidence ONLY with a trusted publisher ID.
+            # A missing ID fails closed; no fallback to a matching slug.
+            if (app_slug != expected_slug
+                    or type(app_id) is not int or app_id != expected_id):
                 continue
         grouped.setdefault(name, []).append(check)
     required_missing = sorted(REQUIRED - grouped.keys())
