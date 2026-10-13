@@ -15,6 +15,12 @@ on:
         required: true
         default: 'config-only'
         options: ['config-only', 'execute']
+      agent_deadline_seconds:
+        description: 'Hard per-agent deadline in seconds (observed free-model range 39-261)'
+        type: choice
+        required: true
+        default: '600'
+        options: ['300', '600', '900']
 
 permissions:
   contents: read
@@ -40,10 +46,12 @@ jobs:
         shell: bash
         env:
           F2_WORKER_COUNT: ${{ inputs.worker_count }}
+          F2_AGENT_DEADLINE: ${{ inputs.agent_deadline_seconds }}
         run: |
           set -euo pipefail
           python3 .github/scripts/ocfilo_f2_pilot.py matrix \
             --worker-count "$F2_WORKER_COUNT" \
+            --deadline-seconds "$F2_AGENT_DEADLINE" \
             --out "$GITHUB_OUTPUT"
       - name: Run offline safety regression on checked out code
         shell: bash
@@ -62,6 +70,7 @@ jobs:
     env:
       F2_TASK_ID: ${{ matrix.task_id }}
       F2_ALLOWED_PATH: ${{ matrix.allowed_path }}
+      F2_DEADLINE_SECONDS: ${{ matrix.deadline_seconds }}
       F2_RUN_MODE: ${{ inputs.run_mode }}
     steps:
       - name: Trusted main exact SHA checkout
@@ -99,17 +108,30 @@ jobs:
       - name: Run ONE scoped OpenCode task
         if: inputs.run_mode == 'execute'
         id: opencode
+        timeout-minutes: 16
         shell: bash
         run: |
-          set -euo pipefail
-          opencode run --standalone --model opencode/big-pickle --agent build \
+          set -uo pipefail
+          start=$SECONDS
+          set +e
+          timeout --signal=TERM --kill-after=20 "$F2_DEADLINE_SECONDS" \
+            opencode run --standalone --model opencode/big-pickle --agent build \
             --format default "$(cat "$RUNNER_TEMP/f2-prompt.txt")" \
             > "$RUNNER_TEMP/f2-agent.log" 2>&1
+          code=$?
+          set -e
+          {
+            echo "exit_code=$code"
+            echo "seconds=$((SECONDS - start))"
+          } >> "$GITHUB_OUTPUT"
+          exit "$code"
       - name: Produce per-task bounded non-publishing evidence
         if: always() && steps.prepare.outcome == 'success'
         shell: bash
         env:
           F2_AGENT_STEP: ${{ steps.opencode.outcome }}
+          F2_AGENT_EXIT: ${{ steps.opencode.outputs.exit_code }}
+          F2_AGENT_SECONDS: ${{ steps.opencode.outputs.seconds }}
         run: |
           set -euo pipefail
           outcome="$F2_AGENT_STEP"
@@ -119,12 +141,15 @@ jobs:
           python3 .github/scripts/ocfilo_f2_pilot.py finalize \
             --task-id "$F2_TASK_ID" \
             --agent-outcome "$outcome" \
+            --agent-exit-code "$F2_AGENT_EXIT" \
+            --agent-seconds "$F2_AGENT_SECONDS" \
+            --deadline-seconds "$F2_DEADLINE_SECONDS" \
             --out "$RUNNER_TEMP/f2-artifact"
       - name: Upload exact-SHA task evidence ONLY
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ocfilo-f2-${{ github.run_id }}-${{ matrix.slot }}
+          name: ocfilo-f2-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.task_id }}
           path: ${{ runner.temp }}/f2-artifact/
           retention-days: 7
-          if-no-files-found: warn
+          if-no-files-found: error
