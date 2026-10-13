@@ -1,6 +1,14 @@
 name: ocfilo F2 Bounded Pilot Regression
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/scripts/ocfilo_f2_pilot.py'
+      - '.github/scripts/test_ocfilo_f2_pilot.py'
+      - 'examples/ocfilo-f2-execution-pilot.json'
+      - '.github/workflows/ocfilo-f2-pilot-tests.yml'
+      - '.github/workflows/ocfilo-f2-worker-pilot.yml'
   push:
     paths:
       - '.github/scripts/ocfilo_f2_pilot.py'
