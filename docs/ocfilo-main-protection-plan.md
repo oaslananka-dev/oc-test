@@ -1,6 +1,6 @@
 # ocfilo F1 — GitHub main koruması uygulama öncesi plan
 
-> **Durum: TASLAK / UYGULANMADI.** Bu belge GitHub repo ayarlarını değiştirmez, PR birleştirmez ve Autopilot oluşturmaz.
+> **Durum: 13 Ekim 2026 tarihinde kullanıcı onayıyla uygulandı.** Bu belge politika geçmişi ve doğrulama koşullarını kaydeder. Değişiklikler yalnızca yetkili GitHub branch protection API üzerinden yapıldı; hiçbir PR birleştirilmedi.
 
 ## Kanıtlanmış mevcut durum (13 Ekim 2026)
 
@@ -12,7 +12,7 @@
 - Depoda mevcut erişilebilir collaborator listesinde bir kullanıcı ve bağımsız ikinci reviewer **yok**. 1+ approval zorunluluğunu şimdi açmak incelemeyi fiilen kilitleyebilir.
 - Repo genelinde `allow_auto_merge: true` ayarı var; bu özelliğin izinli olması etkin bir otomatik merge planı olduğu anlamına gelmez. **Faz 1 otomatik merge yapmaz.** Özelliğin repo genelinde kapatılması ayrıca kapsam kararı gerektirir.
 
-## Önerilen ama henüz uygulanmayan koruma
+## Onaylanan ve etkinleştirilen koruma
 
 1. `main` dalını koru; force-push ve branch silmeyi yasakla, yönetici bypass'ını en aza indir.
 2. Birleştirmeden önce PR kullanımı gereksinimi koy. Tek kollaboratör koşulunda review onay sayısını başlangıçta **0** tut; bağımsız reviewer davet edildikten sonra **1+ onay** zorunluluğunu ayrıca değerlendir.
@@ -33,7 +33,14 @@
 - PR #1 dalı yeni SHA `3c5a45924aa468848495fff24975b4291a0ff859`, PR #2 dalı `311b2328028aeb93dc69c7eddab43087b314482d` ile `baseline` ve `fixture-quality` kontrollerini geçti. Semgrep de her iki SHA için başarıyla sonuçlandı. **Bu SHA'lar sonraki branch güncellemeleriyle değişebilir.**
 - `preflight-f1-main-protection.ps1` her iki güncel SHA üzerinde `baseline` başarısını doğruladı: `prerequisites_ready=true`, `policy_change_applied=false`.
 - `ocfilo_pr_state.py` artık F1 teknik `READY_FOR_MERGE` kararı için `baseline` kontrolünü de zorunlu kılıyor. [32 regresyon testi](https://github.com/oaslananka-dev/oc-test/actions/runs/38339352277) geçti.
-- Bu kayıt bir GitHub ruleset/branch protection etkinleştirmesi **değildir**. Kullanıcının ayrıca kapsam onayı alınmadan repo ayarları değiştirilmez.
+- **Sonradan kullanıcı açıkça onay verdi.** `main` koruması etkinleştirildi ve bağımsız `verify-f1-main-protection.ps1` geri okumasında doğrulandı. Yeni koruma durumunda PR zorunlu, `baseline` check GitHub Actions App ID `15368` ile eşlenmiş, `strict=false`, 0 approval, admin enforcement açık, force-push ve silme kapalı. Güncel bilgiyi API üzerinden yeniden doğrulayın.
+
+## F1 politika kanıtı ve yetki ayrımı (13 Ekim 2026)
+
+- GitHub-hosted `ocfilo-pr-observer.yml` işinin salt-okunur `GITHUB_TOKEN` erişimi ayrıntılı branch protection yanıtı için yeterli olmayabilir. **Eksik/erişilemeyen politika kanıtı asla `github_policy_verified=true` şeklinde yorumlanmaz.**
+- Yetkili AMD2700X `gh` oturumu ile `GET /repos/oaslananka-dev/oc-test/branches/main/protection` alındıktan sonra `ocfilo_merge_policy.py --protection <path>` denetimi çalıştırılabilir. Başarılı F1 teknik kararına ek olarak, yalnızca onaylanmış PR, `baseline` App ID, 0 approval, admin enforcement, force-push ve silme yasakları doğrulandığında `GITHUB_POLICY_VERIFIED_FOR_F1` üretir.
+- Aktif ek ruleset oluşursa, zorunlu kontrol veya App ID değişirse, branch protection verisi eksikse veya PR SHA'sı artık aynı değilse **kapı başarısız/yeniden inceleme gerektirir**. Tam otomatik merge/deploy yasaktır.
+- `check_run` olayı için gerçek Semgrep GitHub App slug değeri `semgrep-code-oaslananka` olarak doğrulandı; kontrolün görünen bağlam adı ise `semgrep-cloud-platform/scan`.
 
 ## Faz 1'in değişmez sınırları
 
