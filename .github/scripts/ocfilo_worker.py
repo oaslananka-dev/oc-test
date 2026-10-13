@@ -16,7 +16,7 @@ def prepare():
     try: m=json.loads(raw)
     except ValueError: fail("invalid JSON")
     if not isinstance(m,dict): fail("manifest must be object")
-    allowed={"task_id","repository","phase","prompt","model","agent","profile","publish","issue","pr_number","expected_sha","fix_rounds","review_profile"}
+    allowed={"task_id","repository","phase","prompt","model","agent","profile","publish","issue","pr_number","expected_sha","fix_rounds","review_profile","allowed_paths"}
     if set(m)-allowed: fail("unexpected fields "+str(sorted(set(m)-allowed)))
     if m.get("repository")!="oaslananka-dev/oc-test" or not NAME.fullmatch(str(m.get("task_id",""))): fail("repository/task_id not allowed")
     if m.get("phase") not in ("implement","repair"): fail("phase must be implement or repair")
@@ -27,6 +27,17 @@ def prepare():
     if not isinstance(m.get("prompt"),str) or not 4 <= len(m["prompt"]) <= 5000: fail("invalid prompt")
     if type(m.get("fix_rounds",1)) is not int or not 1 <= m.get("fix_rounds",1) <= 3: fail("invalid repair budget")
     if m.get("issue") is not None and (type(m["issue"]) is not int or m["issue"]<1): fail("invalid issue")
+    assigned=m.get("allowed_paths")
+    if assigned is not None:
+        if not isinstance(assigned,list) or not 1 <= len(assigned) <= 8:
+            fail("allowed_paths must include 1..8 exact files")
+        if any(not isinstance(p,str) or not PATH.fullmatch(p) or
+               any(seg in (".","..","") for seg in p.split("/")) or
+               "/__pycache__/" in "/"+p+"/" or p.endswith(".pyc")
+               for p in assigned):
+            fail("invalid allowed file path")
+        if len(set(assigned))!=len(assigned):
+            fail("duplicate allowed_paths")
     if m["phase"]=="repair":
         if type(m.get("pr_number")) is not int or m["pr_number"]<1: fail("missing PR")
         if not re.fullmatch(r"[a-f0-9]{40}",str(m.get("expected_sha",""))): fail("missing expected SHA")
@@ -66,6 +77,12 @@ def gate():
         elif line.startswith(("new file mode ","deleted file mode ","old mode ","new mode ")):
             if not line.endswith("100644"): fail("nonregular file mode denied")
     if not files or len(files)>8: fail("must change 1..8 permitted files")
+    task_file=Path(os.environ.get("RUNNER_TEMP",""))/"ocfilo-task.json"
+    if task_file.exists():
+        manifest=json.loads(task_file.read_text(encoding="utf8"))
+        assigned=manifest.get("allowed_paths")
+        if assigned is not None and not set(files).issubset(set(assigned)):
+            fail("patch changes files outside exact worker assignment")
     print("Verified scoped diff:",", ".join(files))
 
 if __name__=="__main__":
