@@ -12,9 +12,10 @@ def snapshot():
                "requested_reviewers": [], "requested_teams": [],
                "head": {"sha": SHA, "ref": "ocfilo/f1-test", "repo": {"full_name": "oaslananka-dev/oc-test"}},
                "base": {"ref": "main", "repo": {"full_name": "oaslananka-dev/oc-test"}}},
-        "checks": {"total_count": 2, "check_runs": [
+        "checks": {"total_count": 3, "check_runs": [
             {"name": "fixture-quality", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions"},
-            {"name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "semgrep-code-oaslananka"}]},
+            {"name": "semgrep-cloud-platform/scan", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "semgrep-code-oaslananka"},
+            {"name": "baseline", "head_sha": SHA, "status": "completed", "conclusion": "success", "app_slug": "github-actions"}]},
         "statuses": {"statuses": []},
         "reviews": [], "issue_comments": [], "review_comments": [],
     }
@@ -29,7 +30,7 @@ class Tests(unittest.TestCase):
         s=snapshot();s["checks"]["check_runs"][0]["status"]="in_progress"
         self.assertEqual(decide(s)["state"], "WAITING_CHECKS")
     def test_missing_required(self):
-        s=snapshot();s["checks"]["check_runs"].pop();s["checks"]["total_count"]=1
+        s=snapshot();s["checks"]["check_runs"].pop();s["checks"]["total_count"]=2
         self.assertEqual(decide(s)["state"], "WAITING_CHECKS")
     def test_required_check_wrong_app_is_missing(self):
         s=snapshot()
@@ -49,10 +50,34 @@ class Tests(unittest.TestCase):
         s["checks"]["check_runs"][0]["conclusion"]="failure"
         bogus=dict(s["checks"]["check_runs"][0],id=999,conclusion="success",app_slug="other-app")
         s["checks"]["check_runs"].append(bogus)
-        s["checks"]["total_count"]=3
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+    def test_missing_universal_baseline_holds_merge(self):
+        s=snapshot()
+        s["checks"]["check_runs"].pop()
+        s["checks"]["total_count"]=2
+        decision=decide(s)
+        self.assertEqual(decision["state"], "WAITING_CHECKS")
+        self.assertIn("baseline", decision["missing_checks"])
+    def test_baseline_spoofed_github_app_rejected(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["app_slug"]="untrusted-bot"
+        decision=decide(s)
+        self.assertEqual(decision["state"], "WAITING_CHECKS")
+        self.assertIn("baseline", decision["missing_checks"])
+    def test_pending_baseline_waits(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["status"]="queued"
+        s["checks"]["check_runs"][2]["conclusion"]=None
+        self.assertEqual(decide(s)["state"], "WAITING_CHECKS")
+    def test_failed_baseline_requires_repair(self):
+        s=snapshot()
+        s["checks"]["check_runs"][2]["conclusion"]="failure"
+        decision=decide(s)
+        self.assertEqual(decision["state"], "REPAIR_REQUIRED")
+        self.assertIn("baseline", decision["failing_checks"])
     def test_paginated_fail_closed(self):
-        s=snapshot();s["checks"]["total_count"]=300
+        s=snapshot();s["checks"]["total_count"]=400
         with self.assertRaises(ValueError):decide(s)
     def test_stale_event(self):
         s=snapshot();s["event_sha"]="b"*40
@@ -76,33 +101,33 @@ class Tests(unittest.TestCase):
         self.assertEqual(decide(s)["state"],"WAITING_CHECKS")
     def test_duplicate_failure_not_green(self):
         s=snapshot();s["checks"]["check_runs"].append(dict(s["checks"]["check_runs"][0],conclusion="failure"))
-        s["checks"]["total_count"]=3
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
     def test_newer_success_overrides_old_failure(self):
         s=snapshot()
         old=dict(s["checks"]["check_runs"][0],id=101,conclusion="failure")
         new=dict(s["checks"]["check_runs"][0],id=102,conclusion="success")
-        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
-        s["checks"]["total_count"]=3
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1],s["checks"]["check_runs"][2]]
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
     def test_newer_failure_overrides_old_success(self):
         s=snapshot()
         old=dict(s["checks"]["check_runs"][0],id=101,conclusion="success")
         new=dict(s["checks"]["check_runs"][0],id=102,conclusion="failure")
-        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
-        s["checks"]["total_count"]=3
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1],s["checks"]["check_runs"][2]]
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
     def test_newer_success_overrides_old_pending(self):
         s=snapshot()
         old=dict(s["checks"]["check_runs"][0],id=101,status="in_progress",conclusion=None)
         new=dict(s["checks"]["check_runs"][0],id=102,conclusion="success")
-        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
-        s["checks"]["total_count"]=3
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1],s["checks"]["check_runs"][2]]
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
     def test_ambiguous_duplicate_fails_closed(self):
         s=snapshot()
         s["checks"]["check_runs"].append(dict(s["checks"]["check_runs"][0],conclusion="failure"))
-        s["checks"]["total_count"]=3
+        s["checks"]["total_count"]=4
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
     def test_newer_commit_status_overrides_old_failure(self):
         s=snapshot()
