@@ -58,6 +58,44 @@ class Tests(unittest.TestCase):
         s=snapshot();s["checks"]["check_runs"].append(dict(s["checks"]["check_runs"][0],conclusion="failure"))
         s["checks"]["total_count"]=3
         self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+    def test_newer_success_overrides_old_failure(self):
+        s=snapshot()
+        old=dict(s["checks"]["check_runs"][0],id=101,conclusion="failure")
+        new=dict(s["checks"]["check_runs"][0],id=102,conclusion="success")
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
+        s["checks"]["total_count"]=3
+        self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
+    def test_newer_failure_overrides_old_success(self):
+        s=snapshot()
+        old=dict(s["checks"]["check_runs"][0],id=101,conclusion="success")
+        new=dict(s["checks"]["check_runs"][0],id=102,conclusion="failure")
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
+        s["checks"]["total_count"]=3
+        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+    def test_newer_success_overrides_old_pending(self):
+        s=snapshot()
+        old=dict(s["checks"]["check_runs"][0],id=101,status="in_progress",conclusion=None)
+        new=dict(s["checks"]["check_runs"][0],id=102,conclusion="success")
+        s["checks"]["check_runs"]=[old,new,s["checks"]["check_runs"][1]]
+        s["checks"]["total_count"]=3
+        self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
+    def test_ambiguous_duplicate_fails_closed(self):
+        s=snapshot()
+        s["checks"]["check_runs"].append(dict(s["checks"]["check_runs"][0],conclusion="failure"))
+        s["checks"]["total_count"]=3
+        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
+    def test_newer_commit_status_overrides_old_failure(self):
+        s=snapshot()
+        s["statuses"]["statuses"]=[
+            {"context":"bot","state":"success","created_at":"2026-10-13T03:02:00Z"},
+            {"context":"bot","state":"failure","created_at":"2026-10-13T03:01:00Z"}]
+        self.assertEqual(decide(s)["state"],"READY_FOR_MERGE")
+    def test_newer_commit_status_failure_blocks(self):
+        s=snapshot()
+        s["statuses"]["statuses"]=[
+            {"context":"bot","state":"failure","created_at":"2026-10-13T03:02:00Z"},
+            {"context":"bot","state":"success","created_at":"2026-10-13T03:01:00Z"}]
+        self.assertEqual(decide(s)["state"],"REPAIR_REQUIRED")
     def test_pending_review(self):
         s=snapshot();s["pr"]["requested_reviewers"]=[{"login":"reviewer"}]
         self.assertEqual(decide(s)["state"],"REVIEW_PENDING")
