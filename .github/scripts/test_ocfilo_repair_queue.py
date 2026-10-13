@@ -75,6 +75,13 @@ class Tests(unittest.TestCase):
         acknowledge(self.con,j["id"],101,SHA)
         finalize(self.con,j["id"],101,SHA,"FAILED")
         self.assertEqual(reserve(self.con,decision(),SHA,"github:two")["job"]["attempt"],2)
+    def test_second_isolated_f1_pr(self):
+        d=decision()
+        d["pr_number"]=2
+        result=reserve(self.con,d,SHA,"github:pr2-live")
+        self.assertEqual(result["outcome"],"RESERVED")
+        self.assertEqual(result["job"]["pr_number"],2)
+
     def test_persist_restart(self):
         r=reserve(self.con,decision(),SHA,"github:one")
         c=connect(self.db)

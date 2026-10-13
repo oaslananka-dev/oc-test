@@ -1,0 +1,44 @@
+name: ocfilo Universal PR Baseline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  baseline:
+    name: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout untrusted candidate with no persisted credentials
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          path: candidate
+      - name: Checkout trusted validator from main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          path: trusted
+      - name: Validate changes without running candidate Python
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          candidate="$GITHUB_WORKSPACE/candidate"
+          if [ "$GITHUB_EVENT_NAME" = 'pull_request' ]; then
+            base="$PR_BASE_SHA"
+            [[ "$base" =~ ^[0-9a-f]{40}$ ]] || exit 3
+          else
+            base="$(git -C "$candidate" rev-parse HEAD^)"
+          fi
+          python3 "$GITHUB_WORKSPACE/trusted/.github/scripts/ocfilo_baseline.py" \
+            --repo "$candidate" --base "$base" --head HEAD

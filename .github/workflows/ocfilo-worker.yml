@@ -69,6 +69,14 @@ jobs:
           npm install --global '@opencode/cli@2.0.27'
           opencode --version
           opencode debug config > "$RUNNER_TEMP/resolved-config.txt"
+      - name: Verify vetted local MCP connection
+        if: ${{ fromJSON(inputs.manifest_json).profile == 'mcp-fixture' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          opencode mcp list 2>&1 | tee "$RUNNER_TEMP/ocfilo-mcp-list.txt"
+          grep -q 'ocfilo_facts' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
+          grep -qi 'connected' "$RUNNER_TEMP/ocfilo-mcp-list.txt"
       - name: Execute worker
         shell: bash
         run: |
@@ -78,10 +86,18 @@ jobs:
           import json, os
           from pathlib import Path
           m=json.loads(Path(os.environ['RUNNER_TEMP'],'ocfilo-task.json').read_text())
-          prompt=m['prompt']+"\nF1 sandbox: edit only plain text under playground/. No push, PR, config, workflow or secrets changes."
+          scope=m.get("allowed_paths")
+          scoped="\nAssigned exact writable files: "+", ".join(scope) if scope else ""
+          prompt=m['prompt']+"\nF1 sandbox: edit only plain text under playground/. No push, PR, config, workflow or secrets changes."+scoped
           Path(os.environ['RUNNER_TEMP'],'prompt.txt').write_text(prompt)
           PY
           opencode run --standalone --model "$(python3 -c 'import json,os;from pathlib import Path;print(json.loads(Path(os.environ["RUNNER_TEMP"],"ocfilo-task.json").read_text())["model"])')" --agent build --format default "$(cat "$RUNNER_TEMP/prompt.txt")" 2>&1 | tee "$RUNNER_TEMP/ocfilo-result/agent.log"
+      - name: Confirm vetted plugin proof tool executed
+        if: ${{ fromJSON(inputs.manifest_json).profile == 'plugin-proof' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'ocfilo F1 read-only plugin proof: loaded on Ubuntu' "$RUNNER_TEMP/ocfilo-result/agent.log"
       - name: Install pinned Codacy review tools
         if: ${{ fromJSON(inputs.manifest_json).review_profile == 'codacy-local' }}
         shell: bash

@@ -14,6 +14,8 @@ REPO = "oaslananka-dev/oc-test"
 BRANCH = re.compile(r"ocfilo/f1-[a-z0-9-]+\Z")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 REQUIRED = frozenset({"fixture-quality", "semgrep-cloud-platform/scan"})
+REQUIRED_APPS = {"fixture-quality": "github-actions",
+                 "semgrep-cloud-platform/scan": "semgrep-code-oaslananka"}
 MAX_REPAIRS = 3
 DONE = {"success"}
 SKIPPED = {"neutral", "skipped"}
@@ -76,11 +78,28 @@ def decide(snapshot, ledger=None):
         name = check.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("unnamed check-run")
+        if name in REQUIRED_APPS:
+            app = check.get("app_slug")
+            if app is None and isinstance(check.get("app"), dict):
+                app = check["app"].get("slug")
+            # A check with a required name is not authoritative unless the
+            # identity of the GitHub App that reported it is expected.
+            if app != REQUIRED_APPS[name]:
+                continue
         grouped.setdefault(name, []).append(check)
     required_missing = sorted(REQUIRED - grouped.keys())
     pending, failed = set(), set()
     for name, duplicates in grouped.items():
-        for check in duplicates:
+        # GitHub retains old check runs for the same commit/context. Prefer the
+        # newest ID (monotonically increasing). If identities are missing or
+        # ambiguous, fail closed by evaluating every candidate.
+        ids = [check.get("id") for check in duplicates]
+        if (len(duplicates) > 1 and all(type(ident) is int and ident > 0 for ident in ids)
+                and len(set(ids)) == len(ids)):
+            checks_to_evaluate = [max(duplicates, key=lambda check: check["id"])]
+        else:
+            checks_to_evaluate = duplicates
+        for check in checks_to_evaluate:
             status = check.get("status")
             conclusion = check.get("conclusion")
             if status != "completed":
@@ -98,16 +117,27 @@ def decide(snapshot, ledger=None):
     commit_status = snapshot.get("statuses")
     if not isinstance(commit_status, dict) or not isinstance(commit_status.get("statuses"), list):
         raise ValueError("missing commit status listing")
+    status_contexts = {}
     for status in commit_status["statuses"]:
         if not isinstance(status, dict):
             raise ValueError("invalid commit status")
         if status.get("sha") not in (None, sha):
             continue
         label = "status:" + str(status.get("context", "?"))
-        if status.get("state") == "pending":
-            pending.add(label)
-        elif status.get("state") != "success":
-            failed.add(label)
+        status_contexts.setdefault(label, []).append(status)
+    for label, duplicates in status_contexts.items():
+        if len(duplicates) > 1:
+            # GitHub's combined-status API returns the latest context first.
+            # Re-sort when timestamps are provided; if ordering is unknown,
+            # fail closed rather than assuming the first result is authoritative.
+            dated = [z.get("created_at") for z in duplicates]
+            if all(isinstance(v, str) and v for v in dated) and len(set(dated)) == len(dated):
+                duplicates = [max(duplicates, key=lambda z: z["created_at"])]
+        for status in duplicates:
+            if status.get("state") == "pending":
+                pending.add(label)
+            elif status.get("state") != "success":
+                failed.add(label)
     result.update(pending_checks=sorted(pending), failing_checks=sorted(failed))
 
     if not isinstance(snapshot.get("reviews"), list):

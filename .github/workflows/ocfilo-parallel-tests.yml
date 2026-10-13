@@ -1,0 +1,24 @@
+name: ocfilo Parallel Ownership Regression
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/scripts/ocfilo_batch.py'
+      - '.github/scripts/test_ocfilo_batch.py'
+      - '.github/scripts/test_ocfilo_worker_scope.py'
+      - '.github/scripts/ocfilo_worker.py'
+      - '.github/workflows/ocfilo-parallel-tests.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify parallel task isolation rules
+        run: python3 .github/scripts/test_ocfilo_batch.py -v
+      - name: Verify exact file ownership on patch gate
+        run: python3 .github/scripts/test_ocfilo_worker_scope.py -v
