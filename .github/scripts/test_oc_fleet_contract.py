@@ -28,6 +28,17 @@ class FleetTests(unittest.TestCase):
                   {"allowed_paths":["playground/fleet/","playground/FLEET/"]},
                   {"arbitrary_plugin_url":"https://evil.invalid"}]:
             with self.subTest(v=v),self.assertRaises((ValueError,TypeError)): parse(v)
+    def test_named_doppler_tool_profiles(self):
+        self.assertEqual(parse().get("tool_profile"),None)
+        for value in ("python-docs","context7-mcp","frontend3"):
+            self.assertEqual(parse({"tool_profile":value})["tool_profile"],value)
+        for value in ("../path","Python-Docs","with space","",7,"x"*80):
+            if value == "":
+                self.assertEqual(parse({"tool_profile":value})["tool_profile"],"")
+                continue
+            with self.subTest(value=value),self.assertRaises((TypeError,ValueError)):
+                parse({"tool_profile":value})
+
     def test_scope(self):
         self.assertTrue(fleet.path_allowed("playground/fleet/a.py",BASE["allowed_paths"]))
         for path in ("playground/fleets/a.py","playground/fleet/.env","docs/x.py","playground/fleet/../x"):
