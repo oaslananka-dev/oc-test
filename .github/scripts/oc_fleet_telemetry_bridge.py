@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 from contextlib import contextmanager
+from functools import lru_cache
 """Local-only OIDC receiver for schema-checked, content-free OpenCode telemetry."""
 import argparse
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
@@ -25,10 +26,16 @@ SAFE_TOOLS = {"bash","read","write","edit","glob","grep","list","patch",
               "apply_patch","webfetch","task","mcp","skill","context7","lsp","other"}
 
 
+@lru_cache(maxsize=1)
+def signing_keys():
+    import jwt
+    return jwt.PyJWKClient(ISSUER + "/.well-known/jwks",
+                           cache_keys=True, lifespan=900, timeout=4)
+
+
 def verified_identity(jwt_token):
     import jwt
-    jwks = jwt.PyJWKClient(ISSUER + "/.well-known/jwks", cache_keys=True)
-    key = jwks.get_signing_key_from_jwt(jwt_token)
+    key = signing_keys().get_signing_key_from_jwt(jwt_token)
     c = jwt.decode(jwt_token, key.key, algorithms=["RS256"],
                    audience=AUDIENCE, issuer=ISSUER,
                    options={"require":["exp","iat","iss","aud","sub"]}, leeway=20)
@@ -235,7 +242,7 @@ def main():
                     except (OSError,ValueError,subprocess.SubprocessError):pass
         threading.Thread(target=report,daemon=True).start()
     # Listen ONLY on loopback: TLS ingress must be separately approved and configured.
-    server=ThreadingHTTPServer(("127.0.0.1",args.port),make_handler(store,verified_identity))
+    server=HTTPServer(("127.0.0.1",args.port),make_handler(store,verified_identity))
     print("Bridge running on loopback port",args.port,flush=True)
     server.serve_forever()
 
