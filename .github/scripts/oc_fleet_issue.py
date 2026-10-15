@@ -3,6 +3,7 @@
 import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time, uuid
 from pathlib import Path
 from oc_fleet_contract import parse_manifest, scoped_patch
+from oc_fleet_identity import github_user_identity, verify_commit
 
 RUNNER="oaslananka-dev/oc-test"
 WORKFLOW="oc-fleet-worker.yml"
@@ -50,6 +51,11 @@ def repo_issue(repo,issue,env):
     require((data.get("permissions") or {}).get("push") is True,
             "chosen account cannot push to target")
     require(not data.get("archived"),"repository archived")
+    if data.get("allow_squash_merge"):
+        require(data.get("squash_merge_commit_title") == "PR_TITLE"
+                and data.get("squash_merge_commit_message") == "BLANK",
+                "target repository squash defaults must be PR_TITLE/BLANK; "
+                "do not copy previous author/co-author trailers into main")
     require(not data.get("private"),"private target checkout requires FLEET_CHECKOUT_TOKEN; not enabled")
     branch=data.get("default_branch")
     require(isinstance(branch,str) and branch,"missing default branch")
@@ -253,7 +259,7 @@ def public_change_metadata(manifest, paths):
     require(re.fullmatch(r"[a-z0-9]{8,12}",task) is not None,"task suffix invalid")
     new_branch=f"change/{issue_number}-{suffix}-{task}"
     return title, body, new_branch
-def publish(env,repo,branch,m,evidence,patch,readonly=False):
+def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=None):
     def head():
         return cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
                     "--jq",".object.sha"],env).stdout.strip()
@@ -292,16 +298,14 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False):
         require(existing.returncode==2,"duplicate task branch or remote error")
         cmd(["git","-C",str(work),"switch","-c",branch_name],env)
         actor=json.loads(cmd(["gh","api","user"],env).stdout)
-        login=actor.get("login")
-        user_id=actor.get("id")
-        require(isinstance(login,str) and re.fullmatch(r"[A-Za-z0-9-]{1,39}",login),
-                "publisher account identity unavailable")
-        require(type(user_id)==int and user_id>0,"publisher account ID unavailable")
-        cmd(["git","-C",str(work),"config","user.name",login],env)
-        cmd(["git","-C",str(work),"config","user.email",
-             f"{user_id}+{login}@users.noreply.github.com"],env)
+        require(expected_account is None or actor.get("login","").lower()==expected_account.lower(),
+                "authenticated GitHub user differs from the selected target account")
+        name,email=github_user_identity(actor)
+        cmd(["git","-C",str(work),"config","user.name",name],env)
+        cmd(["git","-C",str(work),"config","user.email",email],env)
         cmd(["git","-C",str(work),"add","-A"],env)
         cmd(["git","-C",str(work),"commit","-m",title],env)
+        verify_commit(work,name,email)
         cmd(["git","-C",str(work),"-c","credential.helper=",
              "-c","credential.helper=!gh auth git-credential","push",
              "origin",f"HEAD:refs/heads/{branch_name}"],env)
@@ -378,7 +382,8 @@ def main():
                 "resume receipt stale or not for this issue")
     await_run(worker,number)
     evidence,patch=verify_artifact(worker,number,m)
-    publish(target,args.repo,branch,m,evidence,patch,readonly=args.verify_only)
+    publish(target,args.repo,branch,m,evidence,patch,readonly=args.verify_only,
+            expected_account=args.target_account)
 
 if __name__=="__main__":
     try: main()

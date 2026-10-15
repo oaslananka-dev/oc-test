@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - '.github/scripts/oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_identity.py'
+      - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
       - '.github/workflows/oc-fleet-worker.yml'
       - '.github/workflows/oc-fleet-issue-tests.yml'
@@ -11,6 +13,8 @@ on:
   push:
     paths:
       - '.github/scripts/oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_identity.py'
+      - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
       - '.github/workflows/oc-fleet-worker.yml'
       - '.github/workflows/oc-fleet-issue-tests.yml'
@@ -30,5 +34,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_issue.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_identity.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_contract.py -v
           python3 -m py_compile .github/scripts/oc_fleet_issue.py

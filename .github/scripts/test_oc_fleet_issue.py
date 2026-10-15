@@ -133,6 +133,25 @@ class IssueControllerTests(unittest.TestCase):
             data["permissions"]["push"]=False
             with self.assertRaisesRegex(ValueError,"cannot push"):
                 controller.repo_issue("oaslananka-dev/oc-test",12,{})
+    def test_repo_squash_policy_fails_closed(self):
+        data={"full_name":"oaslananka-dev/oc-test","permissions":{"push":True},
+              "default_branch":"main","private":False,"allow_squash_merge":True,
+              "squash_merge_commit_title":"COMMIT_OR_PR_TITLE",
+              "squash_merge_commit_message":"COMMIT_MESSAGES"}
+        with patch.object(controller,"gh",return_value=data):
+            with self.assertRaisesRegex(ValueError,"squash defaults"):
+                controller.repo_issue("oaslananka-dev/oc-test",12,{})
+        data["squash_merge_commit_title"]="PR_TITLE"
+        data["squash_merge_commit_message"]="BLANK"
+        def fake_gh(env,path):
+            if path.endswith("/issues/12"):
+                return {"number":12,"state":"open","title":"Task","body":"Cover edge cases."}
+            return data
+        with patch.object(controller,"gh",side_effect=fake_gh),patch.object(
+                controller,"cmd",return_value=MagicMock(stdout="a"*40)):
+            self.assertEqual(controller.repo_issue(
+                "oaslananka-dev/oc-test",12,{})[1],"a"*40)
+
     def test_private_target_fails_closed(self):
         with patch.object(controller,"gh",return_value={"full_name":"oaslananka-dev/oc-test",
              "permissions":{"push":True},"private":True}):

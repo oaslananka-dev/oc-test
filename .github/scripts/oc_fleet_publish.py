@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from oc_fleet_contract import MAX_PATCH_BYTES, ISSUE_RE, ID_RE, SHA_RE, scoped_patch
+from oc_fleet_identity import github_user_identity, verify_commit
 
 REPO = "oaslananka-dev/oc-test"
 REPO_ID = 1416228069
@@ -126,13 +127,15 @@ def publish(checkout, ev, publisher_sha, task_id):
     if remote.returncode != 2:
         refuse("branch exists or remote state cannot be verified")
     subprocess.run(["git", "-C", str(checkout), "switch", "-c", branch], check=True)
-    subprocess.run(["git", "-C", str(checkout), "config",
-                    "user.name", "Repository maintenance"], check=True)
-    subprocess.run(["git", "-C", str(checkout), "config",
-                    "user.email", "repo-maintenance@users.noreply.github.com"], check=True)
+    # App installation tokens cannot impersonate a real user. Refuse
+    # publication until an authorized human GitHub identity is available.
+    name, email = github_user_identity(gh("user"))
+    subprocess.run(["git", "-C", str(checkout), "config", "user.name", name], check=True)
+    subprocess.run(["git", "-C", str(checkout), "config", "user.email", email], check=True)
     subprocess.run(["git", "-C", str(checkout), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(checkout), "commit", "-m",
                     "test: update scoped regression fixture"], check=True)
+    verify_commit(checkout, name, email)
     subprocess.run(["gh", "auth", "setup-git"], check=True)
     subprocess.run(["git", "-C", str(checkout), "push", "origin",
                     f"HEAD:refs/heads/{branch}"], check=True)
