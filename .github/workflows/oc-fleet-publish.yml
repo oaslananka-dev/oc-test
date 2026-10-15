@@ -1,0 +1,71 @@
+name: ocfilo Verified Fleet PR Publisher (pilot)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: 'Completed trusted Fleet Worker Actions run ID'
+        required: true
+        type: string
+      task_id:
+        description: 'Exact worker task ID from its artifact'
+        required: true
+        type: string
+      run_mode:
+        description: 'Verify only (read-only) or publish with a scoped GitHub App'
+        required: true
+        type: choice
+        default: verify-only
+        options:
+          - verify-only
+          - publish
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: ocfilo-publish-${{ inputs.source_run_id }}-${{ inputs.task_id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    environment: fleet-publisher
+    steps:
+      - name: Trusted publisher checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: trusted
+      - name: Immutable target checkout without persisted credentials
+        uses: actions/checkout@v5
+        with:
+          repository: oaslananka-dev/oc-test
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          path: target
+      - name: Mint repository-scoped, short-lived GitHub App token
+        if: inputs.run_mode == 'publish'
+        uses: actions/create-github-app-token@v3
+        id: app
+        with:
+          client-id: ${{ vars.FLEET_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FLEET_APP_PRIVATE_KEY }}
+          owner: oaslananka-dev
+          repositories: oc-test
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Independently verify native source run, scoped patch, and optionally publish PR
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          FLEET_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          FLEET_TASK_ID: ${{ inputs.task_id }}
+          FLEET_PUBLISH_DRY_RUN: ${{ inputs.run_mode == 'verify-only' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 trusted/.github/scripts/oc_fleet_publish.py
