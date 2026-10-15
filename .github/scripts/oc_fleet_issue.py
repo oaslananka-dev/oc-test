@@ -160,6 +160,8 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False):
         cmd(["gh","repo","clone",repo,str(work),"--","--quiet"],env)
         cmd(["git","-C",str(work),"config","core.autocrlf","false"],env)
         cmd(["git","-C",str(work),"checkout","--detach",m["checkout_sha"]],env)
+        # Fresh temporary clone: normalize checked-out files after changing autocrlf.
+        cmd(["git","-C",str(work),"reset","--hard",m["checkout_sha"]],env)
         require(cmd(["git","-C",str(work),"rev-parse","HEAD"],env).stdout.strip()
                 ==m["checkout_sha"],"target clone SHA mismatch")
         require(not cmd(["git","-C",str(work),"status","--porcelain"],env).stdout.strip(),
