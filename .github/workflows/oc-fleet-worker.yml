@@ -68,6 +68,23 @@ jobs:
           set -euo pipefail
           npm install --global '@opencode/cli@2.0.27'
           opencode --version
+      - uses: actions/setup-python@v6
+        if: needs.validate.outputs.profile == 'python-ruff'
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        if: needs.validate.outputs.profile == 'python-ruff'
+        with:
+          version: '0.12.21'
+          enable-cache: false
+      - name: Prepare locked Python project environment
+        if: needs.validate.outputs.profile == 'python-ruff'
+        working-directory: target
+        run: |
+          set -euo pipefail
+          if [ -f uv.lock ] && [ -f pyproject.toml ]; then
+            uv sync --locked --extra dev --no-install-project --no-build
+          fi
       - name: Install reviewed profile tools
         env:
           FLEET_PROFILE: ${{ needs.validate.outputs.profile }}
