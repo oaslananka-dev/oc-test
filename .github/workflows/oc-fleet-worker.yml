@@ -25,6 +25,9 @@ jobs:
     if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
     outputs:
       target: ${{ steps.contract.outputs.target }}
       sha: ${{ steps.contract.outputs.sha }}
@@ -71,6 +74,19 @@ jobs:
           printf 'telemetry_url=%s\n' "$telemetry_url" >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_tools.py select >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_contract.py validate
+      - name: Register selected internal progress
+        if: (inputs.run_mode == 'execute' || inputs.run_mode == 'telemetry-probe') && fromJSON(inputs.manifest_json).multica_issue
+        continue-on-error: true
+        env:
+          FLEET_TELEMETRY_URL: ${{ steps.contract.outputs.telemetry_url }}
+          FLEET_MULTICA_ISSUE: ${{ fromJSON(inputs.manifest_json).multica_issue }}
+        run: |
+          set -euo pipefail
+          test -n "$FLEET_TELEMETRY_URL" || {
+            echo 'Internal progress requested but telemetry is disabled' >&2
+            exit 2
+          }
+          python3 .github/scripts/oc_fleet_telemetry.py register "$FLEET_MULTICA_ISSUE"
   execute:
     needs: validate
     if: inputs.run_mode == 'execute'

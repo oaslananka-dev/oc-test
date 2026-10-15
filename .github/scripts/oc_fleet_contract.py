@@ -12,9 +12,9 @@ import sys
 ALLOWED_KEYS = frozenset({
     "schema_version", "task_id", "source", "repository", "checkout_sha",
     "base_branch", "issue_key", "prompt", "model", "profile", "allowed_paths",
-    "phase", "publish", "integrations", "tool_profile",
+    "phase", "publish", "integrations", "tool_profile", "multica_issue",
 })
-REQUIRED_KEYS = ALLOWED_KEYS - {"integrations", "tool_profile"}
+REQUIRED_KEYS = ALLOWED_KEYS - {"integrations", "tool_profile", "multica_issue"}
 REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,47}\Z")
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
@@ -82,6 +82,10 @@ def parse_manifest(raw, allowed_repositories):
     if (not isinstance(tool_profile, str)
             or (tool_profile and not re.fullmatch(r"[a-z][a-z0-9-]{0,47}",tool_profile))):
         raise ValueError("invalid selected tool profile")
+    multica_issue = obj.get("multica_issue", "")
+    if (not isinstance(multica_issue, str)
+            or (multica_issue and not re.fullmatch(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}",multica_issue))):
+        raise ValueError("invalid selected Multica issue")
     if obj["phase"] != "implement":
         raise ValueError("repair stage is not yet authorized")
     if obj["publish"] is not False:

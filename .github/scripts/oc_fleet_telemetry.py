@@ -92,6 +92,34 @@ def push(endpoint, audience, batch):
             raise ValueError("bridge did not acknowledge events")
 
 
+def register_progress(endpoint, issue, audience="ocfilo-telemetry"):
+    """Register one operator-selected Multica issue before worker execution.
+
+    This function runs in the trusted validation job, not inside OpenCode.
+    """
+    if not isinstance(issue, str) or not re.fullmatch(
+            r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}", issue):
+        raise ValueError("invalid Multica tracking issue")
+    if not isinstance(endpoint, str):
+        raise ValueError("missing telemetry endpoint")
+    parsed = urlsplit(endpoint)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.query or parsed.fragment
+            or not parsed.path.endswith("/ingest")):
+        raise ValueError("unapproved registration endpoint")
+    destination = urlunsplit((parsed.scheme, parsed.netloc,
+                              parsed.path[:-len("/ingest")] + "/register", "", ""))
+    token = oidc_token(audience)
+    payload = json.dumps({"issue": issue}, separators=(",", ":")).encode("ascii")
+    request = Request(destination, data=payload,
+                      headers={"Authorization": "Bearer " + token,
+                               "Content-Type": "application/json"},
+                      method="POST")
+    with urlopen(request, timeout=7) as response:
+        if response.status != 200:
+            raise ValueError("registration not acknowledged")
+
+
 def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
             endpoint=None, audience="ocfilo-telemetry", stats=None):
     stdin = stdin if stdin is not None else sys.stdin.buffer
@@ -161,23 +189,29 @@ def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
 
 
 if __name__ == "__main__":
+    register_mode = len(sys.argv) > 1
     try:
-        stats = {}
-        count = forward(stats=stats)
-        report = ("Telemetry: lines={lines}, accepted={accepted}, "
-                  "sent_batches={sent}, failures={failures}, http={http_status}"
-                  .format(**stats))
-        print(report, file=sys.stderr)
-        summary = os.getenv("GITHUB_STEP_SUMMARY")
-        if summary:
-            with open(summary, "a", encoding="utf-8") as fp:
-                fp.write(report + "\n")
-        if os.getenv("FLEET_TELEMETRY_PROBE") == "1" and stats["sent"] == 0:
-            sys.exit(2)
-        print("Telemetry processed %d bounded events" % count, file=sys.stderr)
-    except (ValueError, KeyError) as exc:
+        if register_mode:
+            if len(sys.argv) != 3 or sys.argv[1] != "register":
+                raise ValueError("unsupported telemetry command")
+            register_progress(os.getenv("FLEET_TELEMETRY_URL", ""), sys.argv[2])
+            print("Signed telemetry registration accepted", file=sys.stderr)
+        else:
+            stats = {}
+            count = forward(stats=stats)
+            report = ("Telemetry: lines={lines}, accepted={accepted}, "
+                      "sent_batches={sent}, failures={failures}, http={http_status}"
+                      .format(**stats))
+            print(report, file=sys.stderr)
+            summary = os.getenv("GITHUB_STEP_SUMMARY")
+            if summary:
+                with open(summary, "a", encoding="utf-8") as fp:
+                    fp.write(report + "\n")
+            if os.getenv("FLEET_TELEMETRY_PROBE") == "1" and stats["sent"] == 0:
+                sys.exit(2)
+            print("Telemetry processed %d bounded events" % count, file=sys.stderr)
+    except (ValueError, KeyError, OSError, TimeoutError) as exc:
         print("Telemetry unavailable (%s)" % type(exc).__name__, file=sys.stderr)
-        if os.getenv("FLEET_TELEMETRY_PROBE") == "1":
+        if register_mode or os.getenv("FLEET_TELEMETRY_PROBE") == "1":
             sys.exit(2)
-        # Never break an otherwise successful coding task.
         sys.exit(0)

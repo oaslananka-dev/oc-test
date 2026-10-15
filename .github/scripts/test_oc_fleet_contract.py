@@ -39,6 +39,14 @@ class FleetTests(unittest.TestCase):
             with self.subTest(value=value),self.assertRaises((TypeError,ValueError)):
                 parse({"tool_profile":value})
 
+    def test_optional_operator_selected_multica_issue(self):
+        self.assertNotIn("multica_issue",parse())
+        self.assertEqual(parse({"multica_issue":"OAS-11"})["multica_issue"],"OAS-11")
+        self.assertEqual(parse({"multica_issue":""})["multica_issue"],"")
+        for invalid in ("oas-11","OAS-0","OAS-01","../OAS-11","OAS-11\\n@all",7):
+            with self.subTest(invalid=invalid),self.assertRaises((ValueError,TypeError)):
+                parse({"multica_issue":invalid})
+
     def test_scope(self):
         self.assertTrue(fleet.path_allowed("playground/fleet/a.py",BASE["allowed_paths"]))
         for path in ("playground/fleets/a.py","playground/fleet/.env","docs/x.py","playground/fleet/../x"):
