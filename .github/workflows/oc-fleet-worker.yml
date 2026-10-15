@@ -31,6 +31,7 @@ jobs:
       profile: ${{ steps.contract.outputs.profile }}
       task_id: ${{ steps.contract.outputs.task_id }}
       allowlist: ${{ steps.contract.outputs.allowlist }}
+      tool_profile_b64: ${{ steps.contract.outputs.tool_profile_b64 }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -42,6 +43,7 @@ jobs:
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          FLEET_TOOL_PROFILE: ${{ fromJSON(inputs.manifest_json).tool_profile }}
         run: |
           set -euo pipefail
           : "${DOPPLER_TOKEN:?DOPPLER_TOKEN GitHub bootstrap secret is required}"
@@ -51,6 +53,11 @@ jobs:
             ''|*[!a-zA-Z0-9_./,-]*) echo 'Invalid repository routing configuration' >&2; exit 1 ;;
           esac
           printf 'allowlist=%s\n' "$FLEET_ALLOWED_REPOS" >> "$GITHUB_OUTPUT"
+          if [ -n "$FLEET_TOOL_PROFILE" ]; then
+            export FLEET_TOOL_CATALOG="$(doppler secrets get FLEET_TOOL_PROFILES --plain)"
+            test -n "$FLEET_TOOL_CATALOG" || { echo 'Named tool profiles missing in Doppler' >&2; exit 1; }
+          fi
+          python3 .github/scripts/oc_fleet_tools.py select >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_contract.py validate
   execute:
     needs: validate
@@ -95,6 +102,12 @@ jobs:
           if [ -f uv.lock ] && [ -f pyproject.toml ]; then
             uv sync --locked --extra dev --no-install-project --no-build
           fi
+      - name: Prepare selected tool profile
+        env:
+          FLEET_TOOL_PROFILE_B64: ${{ needs.validate.outputs.tool_profile_b64 }}
+        run: |
+          set -euo pipefail
+          python3 runner/.github/scripts/oc_fleet_tools.py prepare
       - name: Install reviewed profile tools
         env:
           FLEET_PROFILE: ${{ needs.validate.outputs.profile }}
@@ -122,6 +135,7 @@ jobs:
         if: contains(fromJSON(inputs.manifest_json).integrations, 'context7')
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          FLEET_TOOL_PROFILE: ${{ fromJSON(inputs.manifest_json).tool_profile }}
         shell: bash
         run: |
           set -euo pipefail
@@ -130,6 +144,26 @@ jobs:
           doppler secrets get CONTEXT7_API_KEY --plain > "$RUNNER_TEMP/context7.key"
           test -s "$RUNNER_TEMP/context7.key" || { echo 'Context7 configuration unavailable' >&2; exit 1; }
           echo 'Selected Doppler configuration resolved'
+      - name: Load selected tool credentials from Doppler
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: |
+          set -euo pipefail
+          names="$RUNNER_TEMP/fleet-selected-tools/secrets.txt"
+          if [ -s "$names" ]; then
+            : "${DOPPLER_TOKEN:?DOPPLER_TOKEN bootstrap secret required}"
+            umask 077
+            file="$RUNNER_TEMP/fleet-selected-tools/credential.env"
+            : > "$file"
+            while IFS= read -r key; do
+              [[ "$key" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || exit 2
+              value="$(doppler secrets get "$key" --plain)"
+              test -n "$value" || { echo 'Required tool credential missing' >&2; exit 1; }
+              [[ "$value" != *$'\\n'* && "$value" != *$'\\r'* ]] || { echo 'Unsupported multiline tool credential' >&2; exit 1; }
+              echo "::add-mask::$value"
+              printf '%s=%s\n' "$key" "$(printf %s "$value" | base64 -w0)" >> "$file"
+            done < "$names"
+          fi
       - name: Execute unprivileged temporary agent
         id: agent
         working-directory: target
@@ -143,7 +177,7 @@ jobs:
           from pathlib import Path
           m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
           p=(m["prompt"]+"\nAllowed paths: "+", ".join(m["allowed_paths"])
-             +"\nDo not push, merge, use credentials or edit workflow files."
+             +"\nDo not push, merge, disclose credentials or edit workflow files."
              +"\nRun relevant tests."
              +("\nContext7 docs tools enabled." if "context7" in m.get("integrations", []) else "")
              +("\nCodacy analyzer available." if "codacy" in m.get("integrations", []) else ""))
@@ -154,6 +188,15 @@ jobs:
           if [ -f "$RUNNER_TEMP/context7.key" ]; then
             export CONTEXT7_API_KEY="$(cat "$RUNNER_TEMP/context7.key")"
             rm -f "$RUNNER_TEMP/context7.key"
+          fi
+          # Only selected credentials reach the temporary tool process.
+          # The Doppler service token is restricted to the trusted retrieval step.
+          if [ -f "$RUNNER_TEMP/fleet-selected-tools/credential.env" ]; then
+            while IFS='=' read -r key encoded; do
+              [[ "$key" =~ ^[A-Z][A-Z0-9_]{0,63}$ ]] || exit 2
+              export "$key=$(printf %s "$encoded" | base64 --decode)"
+            done < "$RUNNER_TEMP/fleet-selected-tools/credential.env"
+            rm -f "$RUNNER_TEMP/fleet-selected-tools/credential.env"
           fi
           # Use an explicit ephemeral config, consistent with the proven F2 pilot.
           # This stays outside the target git worktree and contains no credentials.
@@ -170,6 +213,15 @@ jobs:
               if not os.getenv("CONTEXT7_API_KEY"):
                   raise SystemExit("Context7 selected but Doppler configuration missing")
               cfg["plugins"] = ["@upstash/context7-opencode@0.2.1"]
+          from pathlib import Path
+          selected=Path(os.environ["RUNNER_TEMP"])/"fleet-selected-tools"/"config.json"
+          extension=json.loads(selected.read_text(encoding="utf-8"))
+          if extension.get("plugins"):
+              cfg["plugins"] = list(dict.fromkeys(cfg.get("plugins",[])+extension["plugins"]))
+          if extension.get("mcp"):
+              cfg["mcp"]=extension["mcp"]
+          if extension.get("skills"):
+              cfg["skills"]=extension["skills"]
           # OpenCode v2 currently has no LSP runtime; Ruff/mypy are authoritative.
           print(json.dumps(cfg, separators=(",", ":")))
           PY
