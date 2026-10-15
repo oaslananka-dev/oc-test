@@ -1,0 +1,31 @@
+name: ocfilo Portable Fleet Contract Tests
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/oc_fleet_contract.py'
+      - '.github/scripts/test_oc_fleet_contract.py'
+      - '.github/workflows/oc-fleet-worker.yml'
+      - '.github/workflows/oc-fleet-tests.yml'
+      - 'docs/oc-fleet-pilot.md'
+  push:
+    paths:
+      - '.github/scripts/oc_fleet_contract.py'
+      - '.github/scripts/test_oc_fleet_contract.py'
+      - '.github/workflows/oc-fleet-worker.yml'
+      - '.github/workflows/oc-fleet-tests.yml'
+      - 'docs/oc-fleet-pilot.md'
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Offline contract tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_contract.py -v
+          python3 -m py_compile .github/scripts/oc_fleet_contract.py
