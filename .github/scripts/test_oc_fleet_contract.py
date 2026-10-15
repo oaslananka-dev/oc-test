@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Offline regression tests for the portable task contract."""
+import importlib.util
+import json
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+spec=importlib.util.spec_from_file_location("fleet",Path(__file__).with_name("oc_fleet_contract.py"))
+fleet=importlib.util.module_from_spec(spec);spec.loader.exec_module(fleet)
+BASE={"schema_version":1,"task_id":"pilot-001","source":"frontier","repository":"oaslananka-dev/oc-test",
+"checkout_sha":"a"*40,"base_branch":"main","issue_key":"OCFI-42","prompt":"Fix the stated issue and add tests.",
+"model":"opencode/big-pickle","profile":"base","allowed_paths":["playground/fleet/"],"phase":"implement","publish":False}
+def parse(change=None,allowed=None):
+    return fleet.parse_manifest(json.dumps({**BASE,**(change or {})}),allowed or [BASE["repository"]])
+class FleetTests(unittest.TestCase):
+    def test_sources(self):
+        for s in ("frontier","rules"): self.assertEqual(parse({"source":s})["source"],s)
+    def test_profiles(self):
+        for p in fleet.PROFILES: self.assertEqual(parse({"profile":p})["profile"],p)
+    def test_reject_invalid(self):
+        for v in [{"source":"other"},{"task_id":"../secret"},{"repository":"evil/repo"},
+                  {"checkout_sha":"main"},{"base_branch":"../main"},{"issue_key":"bad"},
+                  {"prompt":"no"},{"model":"private/paid"},{"profile":"url"},
+                  {"publish":True},{"phase":"repair"},{"schema_version":True},
+                  {"allowed_paths":[".github/"]},{"allowed_paths":["playground/../"]},
+                  {"allowed_paths":["playground/.env"]},{"allowed_paths":[1]},
+                  {"allowed_paths":["playground/fleet/","playground/FLEET/"]},
+                  {"arbitrary_plugin_url":"https://evil.invalid"}]:
+            with self.subTest(v=v),self.assertRaises((ValueError,TypeError)): parse(v)
+    def test_scope(self):
+        self.assertTrue(fleet.path_allowed("playground/fleet/a.py",BASE["allowed_paths"]))
+        for path in ("playground/fleets/a.py","playground/fleet/.env","docs/x.py","playground/fleet/../x"):
+            self.assertFalse(fleet.path_allowed(path,BASE["allowed_paths"]))
+    def test_allowlist(self):
+        self.assertEqual(parse(allowed=["OASLANANKA-DEV/OC-TEST"])["task_id"],"pilot-001")
+        with self.assertRaises(ValueError): parse(allowed=["different/repo"])
+    def test_patch_and_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def git(*a): return subprocess.check_output(["git","-C",str(root),*a],text=True).strip()
+            git("init","-q");git("config","user.name","Fleet");git("config","user.email","fleet@example.invalid")
+            (root/"playground/fleet").mkdir(parents=True)
+            p=root/"playground/fleet/a.txt";p.write_text("old\n")
+            git("add",".");git("commit","-qm","base");p.write_text("new\n")
+            paths,patch=fleet.scoped_patch(root,BASE["allowed_paths"])
+            self.assertEqual(paths,["playground/fleet/a.txt"]);self.assertIn(b"+new",patch)
+            ev=fleet.create_evidence({**BASE,"checkout_sha":git("rev-parse","HEAD")},root,root/"results",1,1)
+            self.assertEqual(ev["outcome"],"SUCCEEDED");self.assertFalse(ev["published"])
+            (root/"unrelated.txt").write_text("bad")
+            with self.assertRaises(ValueError): fleet.scoped_patch(root,BASE["allowed_paths"])
+    def test_failure_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ev=fleet.create_failure_evidence(BASE,tmp,1,1)
+            self.assertEqual(ev["outcome"],"FAILED")
+            self.assertNotIn(BASE["prompt"],(Path(tmp)/"result.json").read_text())
+    def test_symlink(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            def git(*a): subprocess.run(["git","-C",str(root),*a],check=True,stdout=subprocess.DEVNULL)
+            git("init","-q");git("config","user.name","Fleet");git("config","user.email","fleet@example.invalid")
+            (root/"playground/fleet").mkdir(parents=True)
+            (root/"playground/fleet/a.txt").write_text("old\n")
+            git("add",".");git("commit","-qm","base")
+            (root/"playground/fleet/link.txt").symlink_to("a.txt")
+            with self.assertRaises(ValueError): fleet.scoped_patch(root,BASE["allowed_paths"])
+if __name__=="__main__": unittest.main(verbosity=2)
