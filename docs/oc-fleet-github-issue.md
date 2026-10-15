@@ -60,3 +60,6 @@ using --verify-only (no PR).
 
 No permanent extra Multica agent, Frontier, GitHub App, or second LLM is used.
 Existing Multica issue pilot remains available independently.
+
+## Terminal failure retry (at most three total attempts)
+Only after GitHub verifies a terminal FAILED/CANCELLED/TIMED_OUT run, call run with --retry-failed and the original repo, issue and approved paths. The old native run/task identity is preserved in the receipt history. A successful/pending run cannot be duplicated. Scope gate diagnostics include only a bounded escaped filename, never model logs or file contents.

@@ -112,7 +112,7 @@ def scoped_patch(repo, scopes):
     for path in paths:
         target = repo / path
         if not path_allowed(path, scopes):
-            raise ValueError("file outside approved scope")
+            raise ValueError("file outside approved scope: " + repr(path[:120]))
         current = repo
         for part in path.split("/"):
             current = current / part
@@ -187,7 +187,7 @@ def cli():
             # Fail closed, but always preserve bounded, non-publishing evidence.
             create_failure_evidence(manifest, os.environ["FLEET_RESULT"],
                                     os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
-            raise ValueError("scope or evidence verification failed; failure evidence recorded") from error
+            raise ValueError("scope gate: " + type(error).__name__ + ": " + str(error)[:160] + "; failure evidence recorded") from error
         print("Fleet evidence created for", len(result["paths"]), "file(s)")
 
 

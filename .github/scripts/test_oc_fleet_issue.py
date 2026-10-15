@@ -70,6 +70,30 @@ class IssueControllerTests(unittest.TestCase):
             a=controller.receipt("alice/repo",42)
             self.assertEqual(a,controller.receipt("ALICE/REPO",42))
             self.assertNotEqual(a,controller.receipt("alice/repo",43))
+    def test_retry_receipt_fail_closed_and_preserves_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"receipt.json"
+            p.write_text(json.dumps({"run_id":71,"manifest":{
+                "repository":"oaslananka-dev/oc-test","task_id":"gh-32-first"},
+                "history":[]}),encoding="utf-8")
+            def prior(env,path):
+                return {"id":71,"status":"completed","conclusion":"failure"}
+            with patch.object(controller,"gh",side_effect=prior):
+                with self.assertRaisesRegex(ValueError,"already dispatched"):
+                    controller.retry_receipt({},p,False)
+                hist=controller.retry_receipt({},p,True)
+                self.assertEqual(hist[0]["run_id"],71)
+                self.assertEqual(hist[0]["outcome"],"failure")
+            with patch.object(controller,"gh",return_value={
+                "id":71,"status":"in_progress","conclusion":None}):
+                with self.assertRaises(ValueError):
+                    controller.retry_receipt({},p,True)
+            p.write_text(json.dumps({"run_id":71,"manifest":{
+                "repository":"oaslananka-dev/oc-test","task_id":"gh-32-third"},
+                "history":[{"run_id":5},{"run_id":6}]}),encoding="utf-8")
+            with self.assertRaisesRegex(ValueError,"maximum three"):
+                controller.retry_receipt({},p,True)
+
     def test_source_verification_blocks_fake_run(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
                  "Fix the test issue safely.",Args(),["oaslananka-dev/oc-test"])
