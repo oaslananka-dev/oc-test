@@ -23,9 +23,12 @@ def resolve_cli(argv, windows=None):
     return argv
 
 
-def cmd(argv,env,cwd=None,ok=True):
-    p=subprocess.run(resolve_cli(argv),cwd=cwd,env=env,text=True,encoding="utf-8",
-                     errors="replace",capture_output=True)
+def cmd(argv,env,cwd=None,ok=True,deadline=None):
+    try:
+        p=subprocess.run(resolve_cli(argv),cwd=cwd,env=env,text=True,encoding="utf-8",
+                         errors="replace",capture_output=True,timeout=deadline)
+    except subprocess.TimeoutExpired as error:
+        raise ValueError(f"command exceeded time limit: {argv[0]}") from error
     if ok and p.returncode: raise ValueError(f"{argv[0]} {argv[1]} failed: {p.stderr[-320:]}")
     return p
 
@@ -176,12 +179,13 @@ def quality_gates(work, changed_paths, integrations, repo):
         if "codacy" in requested:
             cfg=str(Path(temp)/"codacy.config.json")
             x=cmd(["codacy-analysis","init","--auto","--config-file",cfg],
-                  sanitized,cwd=str(work),ok=False)
+                  sanitized,cwd=str(work),ok=False,deadline=60)
             require(x.returncode==0,"Codacy configuration failed; no PR published")
-            x=cmd(["codacy-analysis","analyze","--config-file",cfg,"--no-log","--install-dependencies",
-                   "--files",*changed_paths,"--output-format","json",
+            x=cmd(["codacy-analysis","analyze","--config-file",cfg,"--no-log",
+                   "--no-update-notifier","--tool","Ruff","--tool-timeout","90000",
+                   "--install-dependencies","--files",*changed_paths,"--output-format","json",
                    "--output",str(Path(temp)/"codacy.json")],
-                  sanitized,cwd=str(work),ok=False)
+                  sanitized,cwd=str(work),ok=False,deadline=150)
             require(x.returncode==0,"Codacy found issues or scanner failed; no PR published")
             print("QUALITY_CODACY_PASS",flush=True)
         if "sonarqube" in requested:
@@ -192,6 +196,20 @@ def quality_gates(work, changed_paths, integrations, repo):
             x=cmd(args,sanitized,cwd=str(work),ok=False)
             require(x.returncode==0,"SonarQube analysis failed; no PR published")
             print("QUALITY_SONAR_PASS",flush=True)
+def isolated_quality_gates(work, sha, patch_file, paths, integrations, repo, env, temp):
+    """Run quality scanners in a disposable linked worktree, never the PR worktree."""
+    if not set(integrations).intersection({"codacy", "sonarqube"}):
+        return
+    scan=Path(temp)/"quality-scan"
+    cmd(["git","-C",str(work),"worktree","add","--detach",str(scan),sha],env)
+    try:
+        cmd(["git","-C",str(scan),"config","core.autocrlf","false"],env)
+        cmd(["git","-C",str(scan),"reset","--hard",sha],env)
+        cmd(["git","-C",str(scan),"apply","--check",str(patch_file)],env)
+        cmd(["git","-C",str(scan),"apply",str(patch_file)],env)
+        quality_gates(scan,paths,integrations,repo)
+    finally:
+        cmd(["git","-C",str(work),"worktree","remove","--force",str(scan)],env,ok=False)
 def publish(env,repo,branch,m,evidence,patch,readonly=False):
     def head():
         return cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
@@ -215,7 +233,12 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False):
         require(sorted(paths)==sorted(evidence["paths"])
                 and hashlib.sha256(clean).hexdigest()==evidence["patch_sha256"],
                 "trusted patch re-verification failed")
-        quality_gates(work,paths,m.get("integrations",[]),repo)
+        isolated_quality_gates(work,m["checkout_sha"],p,paths,
+                               m.get("integrations",[]),repo,env,t)
+        after_paths,after_patch=scoped_patch(work,m["allowed_paths"])
+        require(sorted(after_paths)==sorted(paths)
+                and hashlib.sha256(after_patch).hexdigest()==evidence["patch_sha256"],
+                "post-analysis publisher patch changed")
         if readonly:
             print(json.dumps({"status":"VERIFIED_ONLY","paths":paths},ensure_ascii=False))
             return
