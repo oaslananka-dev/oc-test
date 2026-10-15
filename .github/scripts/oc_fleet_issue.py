@@ -68,7 +68,8 @@ def manifest_for(repo,issue,sha,branch,prompt,args,allow):
     m=dict(schema_version=1,task_id=task,source="rules",repository=repo,
            checkout_sha=sha,base_branch=branch,issue_key=f"GH-{issue}",
            prompt=prompt,model=args.model,profile=args.profile,
-           allowed_paths=args.path,phase="implement",publish=False)
+           allowed_paths=args.path,phase="implement",publish=False,
+           integrations=getattr(args,"integration",[]))
     parse_manifest(json.dumps(m,ensure_ascii=False),allow)
     return m
 
@@ -150,6 +151,36 @@ def verify_artifact(env,number,m):
                 for s in m["allowed_paths"]) for x in paths),"scope mismatch")
     return evidence,patch
 
+def quality_gates(work, changed_paths, integrations, repo):
+    """Pre-PR scans using existing operator logins, never shared with the model."""
+    requested=set(integrations)
+    if not requested.intersection({"codacy","sonarqube"}):
+        return
+    if not all(p.startswith("tests/") or p.startswith("src/") for p in changed_paths):
+        raise ValueError("quality scan only supports source and test paths")
+    sanitized=os.environ.copy()
+    for key in ("GH_TOKEN","GITHUB_TOKEN","GITHUB_PAT","OPENAI_API_KEY","CONTEXT7_API_KEY"):
+        sanitized.pop(key,None)
+    with tempfile.TemporaryDirectory(prefix="fleet-quality-") as temp:
+        if "codacy" in requested:
+            cfg=str(Path(temp)/"codacy.config.json")
+            x=cmd(["codacy-analysis","init","--auto","--config-file",cfg],
+                  sanitized,cwd=str(work),ok=False)
+            require(x.returncode==0,"Codacy configuration failed; no PR published")
+            x=cmd(["codacy-analysis","analyze","--config-file",cfg,"--no-log",
+                   "--files",*changed_paths,"--output-format","json",
+                   "--output",str(Path(temp)/"codacy.json")],
+                  sanitized,cwd=str(work),ok=False)
+            require(x.returncode==0,"Codacy found issues or scanner failed; no PR published")
+            print("QUALITY_CODACY_PASS",flush=True)
+        if "sonarqube" in requested:
+            require(repo=="oaslananka/nerlex","SonarQube pilot project binding is Nerlex-only")
+            require(len(changed_paths)<=12,"SonarQube pilot file limit exceeded")
+            args=["sonar","analyze","-p","oaslananka_nerlex","--format","json"]
+            for path in changed_paths: args.extend(["--file",path])
+            x=cmd(args,sanitized,cwd=str(work),ok=False)
+            require(x.returncode==0,"SonarQube analysis failed; no PR published")
+            print("QUALITY_SONAR_PASS",flush=True)
 def publish(env,repo,branch,m,evidence,patch,readonly=False):
     def head():
         return cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
@@ -173,6 +204,7 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False):
         require(sorted(paths)==sorted(evidence["paths"])
                 and hashlib.sha256(clean).hexdigest()==evidence["patch_sha256"],
                 "trusted patch re-verification failed")
+        quality_gates(work,paths,m.get("integrations",[]),repo)
         if readonly:
             print(json.dumps({"status":"VERIFIED_ONLY","paths":paths},ensure_ascii=False))
             return
@@ -235,6 +267,7 @@ def main():
     a.add_argument("--path",action="append",default=[])
     a.add_argument("--model",default="opencode/big-pickle")
     a.add_argument("--profile",default="base")
+    a.add_argument("--integration",action="append",default=[],choices=("context7","codacy","sonarqube"))
     a.add_argument("--worker-account",default="oaslananka")
     a.add_argument("--target-account",default="oaslananka")
     a.add_argument("--dry-run",action="store_true")
@@ -252,7 +285,7 @@ def main():
         if args.dry_run:
             print(json.dumps({"status":"DRY_RUN","repo":args.repo,"issue":args.issue,
                  "sha":sha,"model":args.model,"profile":args.profile,
-                 "scope":args.path,"account":args.target_account},indent=2))
+                 "scope":args.path,"integrations":m["integrations"],"account":args.target_account},indent=2))
             return
         number=dispatch(worker,m)
         file.write_text(json.dumps({"run_id":number,"manifest":m,"history":history},indent=2),

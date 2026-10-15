@@ -94,6 +94,18 @@ class IssueControllerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"maximum three"):
                 controller.retry_receipt({},p,True)
 
+    def test_integrations_are_selected_not_issue_controlled(self):
+        m=controller.manifest_for("oaslananka-dev/oc-test", 42, "a"*40,
+          "main", "Test a simple change and run all checks.", Args(),
+          ["oaslananka-dev/oc-test"])
+        self.assertEqual(m["integrations"],[])
+        class QualityArgs(Args):
+            integration=["codacy","sonarqube"]
+        selected=controller.manifest_for("oaslananka-dev/oc-test",42,"a"*40,
+          "main", "Test a simple change and run all checks.",QualityArgs(),
+          ["oaslananka-dev/oc-test"])
+        self.assertEqual(selected["integrations"],["codacy","sonarqube"])
+
     def test_source_verification_blocks_fake_run(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
                  "Fix the test issue safely.",Args(),["oaslananka-dev/oc-test"])

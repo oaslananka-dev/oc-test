@@ -12,9 +12,9 @@ import sys
 ALLOWED_KEYS = frozenset({
     "schema_version", "task_id", "source", "repository", "checkout_sha",
     "base_branch", "issue_key", "prompt", "model", "profile", "allowed_paths",
-    "phase", "publish",
+    "phase", "publish", "integrations",
 })
-REQUIRED_KEYS = ALLOWED_KEYS
+REQUIRED_KEYS = ALLOWED_KEYS - {"integrations"}
 REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,47}\Z")
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
@@ -44,7 +44,7 @@ def parse_manifest(raw, allowed_repositories):
     if not isinstance(raw, str) or len(raw.encode("utf-8")) > 20_000:
         raise ValueError("manifest too large")
     obj = json.loads(raw)
-    if not isinstance(obj, dict) or set(obj) != REQUIRED_KEYS:
+    if not isinstance(obj, dict) or not REQUIRED_KEYS <= set(obj) or not set(obj) <= ALLOWED_KEYS:
         raise ValueError("missing or unapproved manifest fields")
     if type(obj["schema_version"]) is not int or obj["schema_version"] != 1:
         raise ValueError("unsupported schema version")
@@ -71,6 +71,13 @@ def parse_manifest(raw, allowed_repositories):
     if (not isinstance(obj["model"], str) or not isinstance(obj["profile"], str)
             or obj["model"] not in MODELS or obj["profile"] not in PROFILES):
         raise ValueError("unapproved model or profile")
+    integrations = obj.get("integrations", [])
+    if (not isinstance(integrations, list)
+            or len(integrations) > 3
+            or len(set(str(x) for x in integrations)) != len(integrations)
+            or any(not isinstance(x, str) or x not in ("context7", "codacy", "sonarqube")
+                   for x in integrations)):
+        raise ValueError("unknown or duplicate curated integration")
     if obj["phase"] != "implement":
         raise ValueError("repair stage is not yet authorized")
     if obj["publish"] is not False:
