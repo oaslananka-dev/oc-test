@@ -92,14 +92,48 @@ jobs:
              +"\nRun relevant tests.")
           Path(os.environ["RUNNER_TEMP"],"fleet-prompt.txt").write_text(p,encoding="utf-8")
           PY
-          if timeout --signal=TERM --kill-after=15s 1200s \
+          # Use an explicit ephemeral config, consistent with the proven F2 pilot.
+          # This stays outside the target git worktree and contains no credentials.
+          export OPENCODE_CONFIG_CONTENT="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "$schema": "https://opencode.ai/config.json",
+              "model": os.environ["FLEET_MODEL"],
+              "default_agent": "build",
+              "share": "disabled",
+          }, separators=(",", ":")))
+          PY
+          )"
+          opencode debug config > "$RUNNER_TEMP/fleet-resolved-config.json"
+          start=$SECONDS
+          set +e
+          timeout --signal=TERM --kill-after=15s 1200s \
               opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
               "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
-              > "$RUNNER_TEMP/fleet-agent.log" 2>&1; then
+              > "$RUNNER_TEMP/fleet-agent.log" 2>&1
+          rc=$?
+          set -e
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          echo "seconds=$((SECONDS - start))" >> "$GITHUB_OUTPUT"
+          if [ "$rc" -eq 0 ]; then
             echo 'ok=true' >> "$GITHUB_OUTPUT"
           else
             echo 'ok=false' >> "$GITHUB_OUTPUT"
-            echo 'Agent failed or timed out; model logs not uploaded' >&2
+            category=AGENT_ERROR
+            if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+              category=TIMEOUT
+            elif grep -Eqi 'quota|insufficient.*credits|billing|payment required|402' "$RUNNER_TEMP/fleet-agent.log"; then
+              category=QUOTA
+            elif grep -Eqi '429|rate.limit|too many requests' "$RUNNER_TEMP/fleet-agent.log"; then
+              category=RATE_LIMIT
+            elif grep -Eqi 'free tier can only|403|forbidden' "$RUNNER_TEMP/fleet-agent.log"; then
+              category=PROVIDER_ACCESS
+            elif grep -Eqi '401|unauthorized|invalid.*key' "$RUNNER_TEMP/fleet-agent.log"; then
+              category=AUTH
+            elif grep -Eqi 'ENOTFOUND|ECONNRESET|ETIMEDOUT|fetch failed' "$RUNNER_TEMP/fleet-agent.log"; then
+              category=NETWORK
+            fi
+            echo "OpenCode failed (exit=$rc, category=$category). Raw model log withheld." >&2
           fi
       - name: Validate scoped patch or emit failure evidence
         if: always()
