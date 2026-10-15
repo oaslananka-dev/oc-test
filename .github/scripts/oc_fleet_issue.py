@@ -167,7 +167,7 @@ def quality_gates(work, changed_paths, integrations, repo):
             x=cmd(["codacy-analysis","init","--auto","--config-file",cfg],
                   sanitized,cwd=str(work),ok=False)
             require(x.returncode==0,"Codacy configuration failed; no PR published")
-            x=cmd(["codacy-analysis","analyze","--config-file",cfg,"--no-log",
+            x=cmd(["codacy-analysis","analyze","--config-file",cfg,"--no-log","--install-dependencies",
                    "--files",*changed_paths,"--output-format","json",
                    "--output",str(Path(temp)/"codacy.json")],
                   sanitized,cwd=str(work),ok=False)

@@ -85,6 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           if python3 -c 'import json,os,sys;sys.exit(0 if "codacy" in json.loads(os.environ["FLEET_MANIFEST_JSON"]).get("integrations", []) else 1)'; then
+            pipx install 'lizard==1.24.1'
             npm install --global '@codacy/analysis-cli@0.24.0'
             codacy-analysis --version
           fi
