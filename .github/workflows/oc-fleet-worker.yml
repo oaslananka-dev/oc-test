@@ -1,0 +1,122 @@
+name: ocfilo Portable Fleet Worker (pilot)
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_json:
+        description: 'Reviewed non-secret task manifest'
+        required: true
+        type: string
+      run_mode:
+        description: 'config-only performs no model call'
+        type: choice
+        required: true
+        default: config-only
+        options:
+          - config-only
+          - execute
+permissions:
+  contents: read
+jobs:
+  validate:
+    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      target: ${{ steps.contract.outputs.target }}
+      sha: ${{ steps.contract.outputs.sha }}
+      model: ${{ steps.contract.outputs.model }}
+      profile: ${{ steps.contract.outputs.profile }}
+      task_id: ${{ steps.contract.outputs.task_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Validate task contract
+        id: contract
+        env:
+          FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+          FLEET_ALLOWED_REPOS: ${{ vars.FLEET_ALLOWED_REPOS }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/oc_fleet_contract.py validate
+  execute:
+    needs: validate
+    if: inputs.run_mode == 'execute'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: runner
+          persist-credentials: false
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ needs.validate.outputs.target }}
+          ref: ${{ needs.validate.outputs.sha }}
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+      - name: Install pinned OpenCode
+        run: |
+          set -euo pipefail
+          npm install --global '@opencode/cli@2.0.27'
+          opencode --version
+      - name: Install reviewed profile tools
+        env:
+          FLEET_PROFILE: ${{ needs.validate.outputs.profile }}
+        run: |
+          set -euo pipefail
+          case "$FLEET_PROFILE" in
+            base) ;;
+            python-ruff) pipx install 'ruff==0.13.1' ;;
+            security-semgrep) pipx install 'semgrep==1.141.0' ;;
+            *) exit 3 ;;
+          esac
+      - name: Execute unprivileged temporary agent
+        id: agent
+        working-directory: target
+        env:
+          FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+          FLEET_MODEL: ${{ needs.validate.outputs.model }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
+          p=(m["prompt"]+"\nAllowed paths: "+", ".join(m["allowed_paths"])
+             +"\nDo not push, merge, use credentials or edit workflow files."
+             +"\nRun relevant tests.")
+          Path(os.environ["RUNNER_TEMP"],"fleet-prompt.txt").write_text(p,encoding="utf-8")
+          PY
+          if timeout --signal=TERM --kill-after=15s 1200s \
+              opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
+              "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
+              > "$RUNNER_TEMP/fleet-agent.log" 2>&1; then
+            echo 'ok=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ok=false' >> "$GITHUB_OUTPUT"
+            echo 'Agent failed or timed out; model logs not uploaded' >&2
+          fi
+      - name: Validate scoped patch or emit failure evidence
+        if: always()
+        env:
+          FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+          FLEET_ALLOWED_REPOS: ${{ vars.FLEET_ALLOWED_REPOS }}
+          FLEET_TARGET: ${{ github.workspace }}/target
+          FLEET_RESULT: ${{ runner.temp }}/fleet-result
+          FLEET_AGENT_OK: ${{ steps.agent.outputs.ok }}
+        run: |
+          set -euo pipefail
+          python3 runner/.github/scripts/oc_fleet_contract.py gate
+      - name: Store evidence only
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fleet-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.validate.outputs.task_id }}
+          path: ${{ runner.temp }}/fleet-result/
+          retention-days: 3
+          if-no-files-found: warn
