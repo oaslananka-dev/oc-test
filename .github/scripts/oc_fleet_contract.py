@@ -180,8 +180,14 @@ def cli():
             create_failure_evidence(manifest, os.environ["FLEET_RESULT"],
                                     os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
             raise ValueError("agent did not succeed; failure evidence recorded")
-        result = create_evidence(manifest, os.environ["FLEET_TARGET"], os.environ["FLEET_RESULT"],
-                                 os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
+        try:
+            result = create_evidence(manifest, os.environ["FLEET_TARGET"], os.environ["FLEET_RESULT"],
+                                     os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
+        except (ValueError, TypeError, OSError, subprocess.CalledProcessError, UnicodeError) as error:
+            # Fail closed, but always preserve bounded, non-publishing evidence.
+            create_failure_evidence(manifest, os.environ["FLEET_RESULT"],
+                                    os.environ["GITHUB_RUN_ID"], os.environ["GITHUB_RUN_ATTEMPT"])
+            raise ValueError("scope or evidence verification failed; failure evidence recorded") from error
         print("Fleet evidence created for", len(result["paths"]), "file(s)")
 
 
