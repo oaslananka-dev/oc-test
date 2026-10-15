@@ -86,6 +86,14 @@ class TelemetryTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 s.ingest("123","1",[{**e,"raw_message":"secret"}])
 
+    def test_agent_observer_path_resolves_from_target_checkout(self):
+        workflow = Path(__file__).resolve().parent.parent / "workflows" / "oc-fleet-worker.yml"
+        script = workflow.read_text(encoding="utf-8")
+        self.assertIn('python3 "$GITHUB_WORKSPACE/runner/.github/scripts/oc_fleet_telemetry.py"', script)
+        self.assertNotIn('python3 runner/.github/scripts/oc_fleet_telemetry.py', script)
+        self.assertIn('stage_status=("${PIPESTATUS[@]}")', script)
+        self.assertIn('rc=${stage_status[0]}', script)
+        self.assertIn('${stage_status[1]}', script)
     def test_receiver_rejects_missing_or_wrong_oidc(self):
         with tempfile.TemporaryDirectory() as tmp:
             s=Store(Path(tmp)/"events.sqlite")

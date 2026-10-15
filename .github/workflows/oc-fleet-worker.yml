@@ -252,9 +252,13 @@ jobs:
                 opencode run --standalone --model "$FLEET_MODEL" --agent build --format json \
                 "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
                 2> "$RUNNER_TEMP/fleet-agent.log" \
-              | python3 runner/.github/scripts/oc_fleet_telemetry.py \
+              | python3 "$GITHUB_WORKSPACE/runner/.github/scripts/oc_fleet_telemetry.py" \
                 2>> "$RUNNER_TEMP/fleet-agent.log"
-            rc=${PIPESTATUS[0]}
+            stage_status=("${PIPESTATUS[@]}")
+            rc=${stage_status[0]}
+            if [ "${stage_status[1]}" -ne 0 ]; then
+              echo 'Telemetry observer exited unsuccessfully; code task status unaffected.' >> "$GITHUB_STEP_SUMMARY"
+            fi
           else
             timeout --signal=TERM --kill-after=15s 1200s \
                 opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
