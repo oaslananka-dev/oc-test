@@ -12,8 +12,8 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from oc_fleet_telemetry import forward, normalise
-from oc_fleet_telemetry_bridge import Store, make_handler, progress_text, validate_event
+from oc_fleet_telemetry import forward, normalise, register_progress
+from oc_fleet_telemetry_bridge import Store, make_handler, progress_text, validate_event, validate_multica_issue
 
 
 class TelemetryTest(unittest.TestCase):
@@ -85,6 +85,93 @@ class TelemetryTest(unittest.TestCase):
                 s.ingest("123","1",[{**e,"run_id":"999"}])
             with self.assertRaises(ValueError):
                 s.ingest("123","1",[{**e,"raw_message":"secret"}])
+
+    def test_oidc_registration_uses_separate_trusted_endpoint(self):
+        requests=[]
+        class Response:
+            status=200
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+        def fake_urlopen(req,timeout):
+            requests.append(req)
+            return Response()
+        with patch("oc_fleet_telemetry.oidc_token",return_value="signed-test-token"), patch(
+                "oc_fleet_telemetry.urlopen",side_effect=fake_urlopen):
+            register_progress("https://bridge.example.org/internal/ingest","OAS-11")
+        self.assertEqual(len(requests),1)
+        self.assertEqual(requests[0].full_url,
+                         "https://bridge.example.org/internal/register")
+        self.assertEqual(json.loads(requests[0].data),{"issue":"OAS-11"})
+        self.assertEqual(requests[0].get_header("Authorization"),
+                         "Bearer signed-test-token")
+        with patch("oc_fleet_telemetry.oidc_token",side_effect=AssertionError(
+                "OIDC should not be requested for invalid input")):
+            for url,issue in (
+                ("http://bridge.example.org/ingest","OAS-11"),
+                ("https://bridge.example.org/other","OAS-11"),
+                ("https://bridge.example.org/ingest","OAS-0"),
+                ("https://bridge.example.org/ingest","oas-11")):
+                with self.subTest(url=url,issue=issue),self.assertRaises(ValueError):
+                    register_progress(url,issue)
+
+    def test_http_signed_registration_and_strict_run_binding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            s=Store(Path(tmp)/"events.sqlite")
+            def verifier(token):
+                if token != "valid":
+                    raise ValueError("signed token required")
+                return "123","1"
+            server=ThreadingHTTPServer(("127.0.0.1",0),
+                make_handler(s,verifier,
+                             issue_validator=lambda issue: issue=="OAS-11"))
+            thread=threading.Thread(target=server.serve_forever,daemon=True)
+            thread.start()
+            try:
+                url="http://127.0.0.1:%d/register" % server.server_port
+                def send(issue,token="valid",payload=None):
+                    body=json.dumps(payload if payload is not None else {"issue":issue}).encode()
+                    return urlopen(Request(url,data=body,headers={
+                        "Authorization":"Bearer "+token,
+                        "Content-Type":"application/json"}),timeout=3)
+                self.assertEqual(send("OAS-11").status,200)
+                self.assertEqual(send("OAS-11").status,200)
+                self.assertEqual(s.summary("123","1")["issue"],"OAS-11")
+                for issue, token, body in (
+                    ("OAS-12","valid",None),
+                    ("OAS-11","invalid",None),
+                    ("OAS-11","valid",{"issue":"OAS-11","other":"unsafe"}),
+                ):
+                    with self.subTest(issue=issue,token=token):
+                        with self.assertRaises(HTTPError) as ctx:
+                            send(issue,token,body)
+                        self.assertEqual(ctx.exception.code,403)
+                event={"run_id":"123","attempt":"1","seq":1,"kind":"step_start"}
+                s.ingest("123","1",[event])
+                self.assertEqual(s.summary("123","1")["events"],1)
+            finally:
+                server.shutdown()
+                server.server_close()
+
+    def test_workspace_identity_required_for_multica_registration(self):
+        from unittest.mock import MagicMock
+        import os
+        allowed="dacd00a3-eeb9-4f80-9c9e-773062880f87"
+        data={"identifier":"OAS-11","workspace_id":allowed,"status":"todo"}
+        def fake_run(*args,**kwargs):
+            return MagicMock(stdout=json.dumps(data))
+        with patch.dict(os.environ,{"FLEET_MULTICA_WORKSPACE_ID":allowed}), patch(
+                "oc_fleet_telemetry_bridge.subprocess.run",side_effect=fake_run):
+            self.assertTrue(validate_multica_issue("OAS-11"))
+            data["status"]="done"
+            with self.assertRaises(ValueError):
+                validate_multica_issue("OAS-11")
+            data["status"]="todo"
+            data["workspace_id"]="00000000-0000-0000-0000-000000000000"
+            with self.assertRaises(ValueError):
+                validate_multica_issue("OAS-11")
+        with patch.dict(os.environ,{"FLEET_MULTICA_WORKSPACE_ID":""}):
+            with self.assertRaises(ValueError):
+                validate_multica_issue("OAS-11")
 
     def test_agent_observer_path_resolves_from_target_checkout(self):
         workflow = Path(__file__).resolve().parent.parent / "workflows" / "oc-fleet-worker.yml"

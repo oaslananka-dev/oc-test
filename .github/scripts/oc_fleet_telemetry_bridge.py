@@ -192,13 +192,31 @@ def publish(store,run,attempt):
         store.set_comment(run,attempt,data["id"],data["revision"])
 
 
-def make_handler(store,verifier):
+def validate_multica_issue(issue):
+    """Fail closed unless this issue belongs to the configured Multica workspace."""
+    workspace = os.environ.get("FLEET_MULTICA_WORKSPACE_ID", "")
+    if (not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", workspace)
+            or not isinstance(issue, str)
+            or not re.fullmatch(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}",issue)):
+        raise ValueError("untrusted Multica issue/workspace")
+    result = subprocess.run(["multica","issue","get",issue,"--output","json"],
+                            capture_output=True,text=True,check=True,timeout=12)
+    data = json.loads(result.stdout)
+    if (data.get("identifier") != issue or data.get("workspace_id") != workspace
+            or data.get("status") in ("done","cancelled")):
+        raise ValueError("issue not active in the approved workspace")
+    return True
+
+
+def make_handler(store,verifier,issue_validator=validate_multica_issue):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path!="/health":self.send_error(404);return
             self.send_response(200);self.end_headers();self.wfile.write(b"ok")
         def do_POST(self):
-            if self.path!="/ingest":self.send_error(404);return
+            if self.path not in ("/ingest","/register"):
+                self.send_error(404)
+                return
             try:
                 length=int(self.headers.get("Content-Length","0"))
                 if not 1<=length<=65536:raise ValueError("bad request size")
@@ -206,9 +224,16 @@ def make_handler(store,verifier):
                 if not header.startswith("Bearer "):raise ValueError("missing OIDC")
                 run,attempt=verifier(header[7:])
                 data=json.loads(self.rfile.read(length))
-                if not isinstance(data,dict) or set(data)!={"events"}:
-                    raise ValueError("unrecognised payload")
-                store.ingest(run,attempt,data["events"])
+                if not isinstance(data,dict):
+                    raise ValueError("invalid payload")
+                if self.path=="/register":
+                    if set(data)!={"issue"} or not issue_validator(data["issue"]):
+                        raise ValueError("unapproved Multica issue")
+                    store.register(run,attempt,data["issue"])
+                else:
+                    if set(data)!={"events"}:
+                        raise ValueError("unrecognised payload")
+                    store.ingest(run,attempt,data["events"])
                 self.send_response(200);self.end_headers();self.wfile.write(b'{"ok":true}')
             except Exception:  # includes invalid signed JWT / JWKS fetch errors; no details exposed
                 self.send_error(403,"rejected")

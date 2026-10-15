@@ -110,6 +110,18 @@ class IssueControllerTests(unittest.TestCase):
         self.assertEqual(m["source"],"rules")
         self.assertFalse(m["publish"])
         self.assertTrue(m["task_id"].startswith("gh-12-"))
+    def test_operator_opt_in_multica_tracking_not_from_issue_text(self):
+        args=Args()
+        args.multica_issue="OAS-11"
+        m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+             "Issue body says OAS-99 should be used instead.",args,
+             ["oaslananka-dev/oc-test"])
+        self.assertEqual(m["multica_issue"],"OAS-11")
+        args.multica_issue="oas-11"
+        with self.assertRaisesRegex(ValueError,"Multica issue"):
+            controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+                 "Fix a regression safely.",args,["oaslananka-dev/oc-test"])
+
     def test_manifest_reject_unsafe(self):
         a=Args()
         for paths in [[],[".github/"],["playground/../"],["playground/fleet/","playground/FLEET/"]]:

@@ -98,6 +98,9 @@ def manifest_for(repo,issue,sha,branch,prompt,args,allow):
            allowed_paths=args.path,phase="implement",publish=False,
            integrations=getattr(args,"integration",[]),
            tool_profile=getattr(args,"tool_profile",""))
+    selected_issue=getattr(args,"multica_issue","")
+    if selected_issue:
+        m["multica_issue"]=selected_issue
     parse_manifest(json.dumps(m,ensure_ascii=False),allow)
     return m
 
@@ -367,6 +370,8 @@ def main():
     a.add_argument("--profile",default="base")
     a.add_argument("--integration",action="append",default=[],choices=("context7","codacy","sonarqube"))
     a.add_argument("--tool-profile",default="",help="Named Doppler profile for task MCP/skills/plugins/CLI")
+    a.add_argument("--multica-issue",default="",
+                   help="Optional approved Multica issue to receive internal progress")
     a.add_argument("--worker-account",default="oaslananka")
     a.add_argument("--target-account",default="oaslananka")
     a.add_argument("--dry-run",action="store_true")
@@ -392,7 +397,7 @@ def main():
         if args.dry_run:
             print(json.dumps({"status":"DRY_RUN","repo":args.repo,"issue":args.issue,
                  "sha":sha,"model":args.model,"profile":args.profile,
-                 "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"account":args.target_account},indent=2))
+                 "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account},indent=2))
             return
         number=dispatch(worker,m)
         file.write_text(json.dumps({"run_id":number,"manifest":m,"history":history},indent=2),
