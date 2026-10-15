@@ -23,6 +23,58 @@ class IssueControllerTests(unittest.TestCase):
             controller.resolve_cli(["codacy-analysis", "--version"], windows=False),
             ["codacy-analysis", "--version"])
 
+    def test_bounded_python_codacy_gate(self):
+        with patch.object(controller, "cmd", return_value=MagicMock(returncode=0)) as call:
+            controller.quality_gates(Path("."), ["tests/test_hashing.py"],
+                                     ["codacy"], "oaslananka/nerlex")
+            self.assertEqual(call.call_count, 2)
+            invocation = call.call_args_list[-1]
+            self.assertIn("Ruff", invocation.args[0])
+            self.assertIn("--tool-timeout", invocation.args[0])
+            self.assertEqual(invocation.kwargs["deadline"], 150)
+
+    def test_subprocess_timeout_fails_closed(self):
+        with patch.object(controller.subprocess, "run",
+                          side_effect=controller.subprocess.TimeoutExpired(
+                              cmd=["codacy-analysis"], timeout=3)):
+            with self.assertRaisesRegex(ValueError, "time limit"):
+                controller.cmd(["codacy-analysis"], {}, deadline=3)
+
+    def test_codacy_generated_files_never_enter_publisher_patch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            repo=root/"target"
+            repo.mkdir()
+            env=dict(os.environ)
+            def git(*args):
+                return controller.cmd(["git","-C",str(repo),*args],env).stdout.strip()
+            git("init","-q")
+            git("config","user.name","Fleet")
+            git("config","user.email","fleet@example.invalid")
+            git("config","core.autocrlf","false")
+            target=repo/"tests"/"test_hashing.py"
+            target.parent.mkdir()
+            target.write_bytes(b"before\n")
+            git("add",".")
+            git("commit","-qm","base")
+            sha=git("rev-parse","HEAD")
+            target.write_bytes(b"after\n")
+            patch_file=root/"changes.patch"
+            patch_file.write_bytes(controller.subprocess.check_output(
+                ["git","-C",str(repo),"diff","--binary","HEAD"]))
+            def generate_extra(scan, paths, integrations, project):
+                self.assertNotEqual(Path(scan),repo)
+                unwanted=Path(scan)/".codacy"/".gitignore"
+                unwanted.parent.mkdir()
+                unwanted.write_text("generated/\n",encoding="utf-8")
+            with patch.object(controller,"quality_gates",side_effect=generate_extra):
+                controller.isolated_quality_gates(
+                    repo,sha,patch_file,["tests/test_hashing.py"],["codacy"],
+                    "oaslananka/nerlex",env,root)
+            self.assertFalse((repo/".codacy").exists())
+            paths, _ = controller.scoped_patch(repo,["tests/test_hashing.py"])
+            self.assertEqual(paths,["tests/test_hashing.py"])
+
     def test_manifest_ok(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,
              "main","Fix the sample issue safely.",Args(),["oaslananka-dev/oc-test"])
