@@ -54,6 +54,17 @@ class PublisherTests(unittest.TestCase):
             with self.subTest(bad=bad),self.assertRaises(ValueError):
                 pub.verify_source_run({**run_data(),**bad},123,RUN_ID,SHA)
 
+    def test_skipped_telemetry_probe_is_not_a_failed_worker(self):
+        valid=[{"name":"validate","conclusion":"success"},
+               {"name":"execute","conclusion":"success"},
+               {"name":"telemetry-probe","conclusion":"skipped"}]
+        pub.verify_jobs(valid)
+        for outcome in ("success","failure","cancelled","in_progress"):
+            with self.subTest(outcome=outcome),self.assertRaises(ValueError):
+                pub.verify_jobs(valid[:2]+[{"name":"telemetry-probe","conclusion":outcome}])
+        with self.assertRaises(ValueError):
+            pub.verify_jobs(valid[:2]+[valid[1]])
+
     def test_source_jobs_rejection(self):
         for jobs in [[],[{"name":"validate","conclusion":"success"}],
                      [{"name":"validate","conclusion":"success"},{"name":"execute","conclusion":"skipped"}],
