@@ -128,6 +128,23 @@ def await_run(env,number,timeout=1900):
         time.sleep(12)
     raise ValueError(f"worker still active; resume the saved run ID {number}")
 
+def verify_worker_jobs(response):
+    """Accept the legacy two-job workflow or the non-executing telemetry probe job.
+
+    The optional probe is SKIPPED during real execute runs. Reject any extra,
+    duplicated or unexpectedly successful jobs rather than weakening the gate.
+    """
+    jobs=response.get("jobs")
+    require(isinstance(jobs,list) and type(response.get("total_count")) is int
+            and response["total_count"]==len(jobs),"worker job listing incomplete")
+    conclusions=[(entry.get("name"),entry.get("conclusion")) for entry in jobs]
+    required={("validate","success"),("execute","success")}
+    current=required|{("telemetry-probe","skipped")}
+    require(len(conclusions)==len(set(conclusions))
+            and set(conclusions) in (required,current),
+            "worker jobs not all successful or unknown job present")
+
+
 def verify_artifact(env,number,m):
     run=gh(env,f"repos/{RUNNER}/actions/runs/{number}")
     wf=gh(env,f"repos/{RUNNER}/actions/workflows/{WORKFLOW}")
@@ -139,9 +156,7 @@ def verify_artifact(env,number,m):
             and run.get("event")=="workflow_dispatch" and run.get("head_branch")=="main"
             and run.get("run_attempt")==1,"untrusted worker run")
     jobs=gh(env,f"repos/{RUNNER}/actions/runs/{number}/jobs?per_page=100")
-    require(jobs.get("total_count")==2 and
-            {x.get("name"):x.get("conclusion") for x in jobs.get("jobs",[])}
-            =={"validate":"success","execute":"success"},"worker jobs not all successful")
+    verify_worker_jobs(jobs)
     arts=gh(env,f"repos/{RUNNER}/actions/runs/{number}/artifacts?per_page=100")
     name=f"fleet-{number}-1-{m['task_id']}"
     matches=[a for a in arts.get("artifacts",[]) if a.get("name")==name]

@@ -215,6 +215,28 @@ class IssueControllerTests(unittest.TestCase):
           ["oaslananka-dev/oc-test"])
         self.assertEqual(selected["integrations"],["codacy","sonarqube"])
 
+    def test_completed_worker_jobs_allow_skipped_telemetry_probe(self):
+        legacy={"total_count":2,"jobs":[
+            {"name":"validate","conclusion":"success"},
+            {"name":"execute","conclusion":"success"}]}
+        controller.verify_worker_jobs(legacy)
+        current={"total_count":3,"jobs":legacy["jobs"]+[
+            {"name":"telemetry-probe","conclusion":"skipped"}]}
+        controller.verify_worker_jobs(current)
+        for invalid in (
+            {**current,"total_count":2},
+            {**current,"jobs":current["jobs"][:2]+[
+                {"name":"telemetry-probe","conclusion":"success"}]},
+            {**current,"jobs":current["jobs"][:2]+[
+                {"name":"unexpected","conclusion":"skipped"}]},
+            {**current,"jobs":[current["jobs"][0]]*3},
+            {**current,"jobs":current["jobs"][:2]+[
+                {"name":"telemetry-probe","conclusion":"failure"}]},
+        ):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                    ValueError,"worker job"):
+                controller.verify_worker_jobs(invalid)
+
     def test_source_verification_blocks_fake_run(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
                  "Fix the test issue safely.",Args(),["oaslananka-dev/oc-test"])
