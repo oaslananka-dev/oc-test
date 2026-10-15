@@ -47,10 +47,12 @@ def verify_source_run(run, workflow_id, run_id, publisher_sha):
     return run["run_attempt"]
 
 def verify_jobs(jobs):
-    if not isinstance(jobs, list) or len(jobs) != 2:
+    if not isinstance(jobs, list):
         refuse("unexpected source job count")
-    state = {j.get("name"): j.get("conclusion") for j in jobs}
-    if state != {"validate": "success", "execute": "success"}:
+    actual = [(j.get("name"), j.get("conclusion")) for j in jobs]
+    required = {("validate", "success"), ("execute", "success")}
+    current = required | {("telemetry-probe", "skipped")}
+    if len(actual) != len(set(actual)) or set(actual) not in (required, current):
         refuse("source did not execute trusted validation and worker jobs")
 
 def verify_artifact_metadata(items, run_id, attempt, task_id):
@@ -171,7 +173,8 @@ def main():
     wf = gh(f"repos/{REPO}/actions/workflows/{WORKFLOW}")
     attempt = verify_source_run(run, wf["id"], run_id, publisher_sha)
     jobs = gh(f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100")
-    if jobs.get("total_count") != 2:
+    if type(jobs.get("total_count")) is not int or (
+            jobs["total_count"] != len(jobs.get("jobs", []))):
         refuse("unexpected source job pagination")
     verify_jobs(jobs.get("jobs"))
     artifacts = gh(f"repos/{REPO}/actions/runs/{run_id}/artifacts?per_page=100")
