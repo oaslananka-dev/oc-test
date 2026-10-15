@@ -52,6 +52,23 @@ class TelemetryTest(unittest.TestCase):
                       run_id="123",attempt="1",endpoint="https://telemetry.example.org/ingest")
         self.assertEqual(count,1)
 
+    def test_safe_probe_diagnostics_are_bounded_counts(self):
+        stats={}
+        observed=[]
+        def sender(url,audience,events):
+            observed.extend(events)
+        stream=BytesIO(
+            b'{"type":"step_start","part":{"text":"SECRET"}}\n'
+            b'{"type":"step_finish","part":{"tokens":{"input":2,"output":3}}}\n')
+        count=forward(stream,sender,run_id="123",attempt="1",
+                      endpoint="https://example.org/ingest",stats=stats)
+        self.assertEqual(count,2)
+        self.assertEqual(stats["lines"],2)
+        self.assertEqual(stats["accepted"],2)
+        self.assertEqual(stats["sent"],1)
+        self.assertEqual(stats["failures"],0)
+        self.assertNotIn("SECRET",json.dumps(observed))
+
     def test_sqlite_binding_duplicate_and_claim_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             s=Store(Path(tmp)/"events.sqlite")
