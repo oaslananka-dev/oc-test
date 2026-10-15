@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """One GitHub issue -> no-frontier ephemeral OpenCode worker -> locally verified PR."""
-import argparse, hashlib, json, os, re, subprocess, sys, tempfile, time, uuid
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time, uuid
 from pathlib import Path
 from oc_fleet_contract import parse_manifest, scoped_patch
 
@@ -12,8 +12,19 @@ SHA=re.compile(r"[0-9a-f]{40}\Z")
 def require(ok,message):
     if not ok: raise ValueError(message)
 
+def resolve_cli(argv, windows=None):
+    """Use the actual npm .cmd launcher on Windows; never invoke via shell=True."""
+    if windows is None:
+        windows = os.name == "nt"
+    if windows and argv[0] == "codacy-analysis":
+        launcher = shutil.which("codacy-analysis.cmd")
+        require(bool(launcher), "Codacy Windows .cmd shim is missing")
+        return [launcher, *argv[1:]]
+    return argv
+
+
 def cmd(argv,env,cwd=None,ok=True):
-    p=subprocess.run(argv,cwd=cwd,env=env,text=True,encoding="utf-8",
+    p=subprocess.run(resolve_cli(argv),cwd=cwd,env=env,text=True,encoding="utf-8",
                      errors="replace",capture_output=True)
     if ok and p.returncode: raise ValueError(f"{argv[0]} {argv[1]} failed: {p.stderr[-320:]}")
     return p

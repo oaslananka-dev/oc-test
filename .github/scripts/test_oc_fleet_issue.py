@@ -13,6 +13,16 @@ class Args:
     path=["playground/fleet/"]
 
 class IssueControllerTests(unittest.TestCase):
+    def test_codacy_windows_launcher(self):
+        with patch.object(controller.shutil, "which",
+                          return_value=r"C:\Tools\codacy-analysis.cmd"):
+            self.assertEqual(
+                controller.resolve_cli(["codacy-analysis", "--version"], windows=True),
+                [r"C:\Tools\codacy-analysis.cmd", "--version"])
+        self.assertEqual(
+            controller.resolve_cli(["codacy-analysis", "--version"], windows=False),
+            ["codacy-analysis", "--version"])
+
     def test_manifest_ok(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,
              "main","Fix the sample issue safely.",Args(),["oaslananka-dev/oc-test"])
