@@ -1,0 +1,33 @@
+name: ocfilo Fleet Publisher Offline Tests
+
+on:
+  pull_request:
+    paths:
+      - '.github/scripts/oc_fleet_publish.py'
+      - '.github/scripts/test_oc_fleet_publish.py'
+      - '.github/workflows/oc-fleet-publish.yml'
+      - '.github/workflows/oc-fleet-publish-tests.yml'
+      - 'docs/oc-fleet-publisher.md'
+  push:
+    paths:
+      - '.github/scripts/oc_fleet_publish.py'
+      - '.github/scripts/test_oc_fleet_publish.py'
+      - '.github/workflows/oc-fleet-publish.yml'
+      - '.github/workflows/oc-fleet-publish-tests.yml'
+      - 'docs/oc-fleet-publisher.md'
+permissions:
+  contents: read
+jobs:
+  publisher-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Offline proof and adversarial checks
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s .github/scripts -p 'test_oc_fleet_publish.py' -v
+          python3 -m unittest discover -s .github/scripts -p 'test_oc_fleet_contract.py' -v
+          python3 -m py_compile .github/scripts/oc_fleet_publish.py .github/scripts/oc_fleet_contract.py
