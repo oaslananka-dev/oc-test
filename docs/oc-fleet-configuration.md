@@ -51,3 +51,34 @@ and the internal Multica issue. They do not belong in target repositories.
 
 Existing records in the initial experimental pilot may preserve historical
 information. New publications use this policy by default.
+
+## Git commit identity and squash merge policy
+
+Every published commit must use the selected signed-in GitHub user's
+authenticated profile. Derive display name and numeric-ID noreply email
+from gh api user, using the selected account token. Reject App/bot
+identities, missing user IDs, fabricated author/committer metadata and
+automation co-author trailers. Verify the actual commit metadata and
+message independently before pushing.
+
+For target repositories with squash merge enabled, require:
+- squash_merge_commit_title = PR_TITLE
+- squash_merge_commit_message = BLANK
+
+These prevent GitHub from including intermediate commit subjects and
+co-author trailers by default. New target repositories are checked before
+dispatch; the controller does not silently alter their settings. A repo
+administrator can configure the settings once under GitHub Settings,
+General, Pull Requests.
+
+For programmatic squash merges pass an explicit clean commit title and
+message rather than accepting GitHub's generated history. These defaults
+do not prevent a user from manually editing a message in the GitHub UI.
+
+The legacy F2 local integrator also uses the configured Git author rather
+than a fabricated integration persona. The older App-token publisher
+refuses real writes if it cannot verify an authenticated human identity.
+
+Already merged commits are NOT rewritten to remove historic attribution.
+Force-pushing protected history would change SHAs and invalidate existing
+references and verification signatures.

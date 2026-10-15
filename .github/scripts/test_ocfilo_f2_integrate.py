@@ -132,7 +132,7 @@ class HappyPathTests(unittest.TestCase):
         self.assertEqual(sorted(changed), sorted(PATHS.values()))
         self.assertEqual(git(fx.repo, "status", "--porcelain"), "")
         self.assertEqual(git(fx.repo, "log", "-1", "--format=%an <%ae>"),
-                         "ocfilo-integrator <ocfilo-integrator@users.noreply.github.com>")
+                         "Offline Test <t@invalid.test>")
         self.assertEqual((fx.repo / PATHS["f2-dag-report"]).read_text(), "f2-dag-report output\n")
         self.assertEqual(git(fx.repo, "remote"), "")  # nothing to push to
 

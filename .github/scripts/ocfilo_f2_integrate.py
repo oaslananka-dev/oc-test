@@ -19,13 +19,13 @@ import ocfilo_f2_dag as dag
 import ocfilo_f2_pilot as pilot
 from ocfilo_f2_plan import plan as validate_plan
 from ocfilo_f2_sched import schedule
+from oc_fleet_identity import validate_local_identity, verify_commit
 
 WORKFLOW_PATH = ".github/workflows/ocfilo-f2-dag-run.yml"
 ARTIFACT = re.compile(r"ocfilo-f2-(\d+)-(\d+)-r(\d+)-([a-z0-9][a-z0-9-]{1,48})\Z")
 BRANCH = re.compile(r"f2-integration/[a-z0-9][a-z0-9._-]{0,60}\Z")
 TASK_FILES = {"result.json", "changes.patch"}
 MAX_EVIDENCE_BYTES = 16384
-IDENTITY = ("ocfilo-integrator", "ocfilo-integrator@users.noreply.github.com")
 HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
@@ -170,11 +170,15 @@ def integrate(raw_plan, art_dir, run_meta, run_id, sha, repo, branch=None):
                                   ).decode().split("\x00")[:-1])
             if changed != sorted(p for _, p, _, _ in ordered):
                 raise ValueError("Integrated change set differs from the owned paths")
-            msg = (f"feat(f2): integrate {raw_plan['plan_id']} run {run_id}\n\n"
-                   + "\n".join(f"- {tid}: {path}" for tid, path, _, _ in ordered)
-                   + f"\n\nBase {sha}. Verified by ocfilo_f2_integrate.py; review required.\n")
-            _git(repo, "-c", f"user.name={IDENTITY[0]}", "-c", f"user.email={IDENTITY[1]}",
+            # F2 only assembles a local branch: use an explicitly configured
+            # local Git identity, never an invented integration or agent author.
+            name = _git(repo, "config", "--get", "user.name", check=False).decode().strip()
+            email = _git(repo, "config", "--get", "user.email", check=False).decode().strip()
+            validate_local_identity(name, email)
+            msg = "chore: integrate verified changes"
+            _git(repo, "-c", f"user.name={name}", "-c", f"user.email={email}",
                  "commit", "-q", "--no-gpg-sign", "-m", msg)
+            verify_commit(repo, name, email)
             commit = _git(repo, "rev-parse", "HEAD").decode().strip()
         except (ValueError, OSError):
             _git(repo, "reset", "-q", "--hard", sha, check=False)
