@@ -16,6 +16,9 @@ on:
           - execute
 permissions:
   contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
 jobs:
   validate:
     if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
