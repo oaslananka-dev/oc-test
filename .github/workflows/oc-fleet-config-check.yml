@@ -1,0 +1,29 @@
+name: Verify configuration access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73 # v4
+      - name: Confirm scoped configuration is accessible
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DOPPLER_TOKEN:?DOPPLER_TOKEN bootstrap secret required}"
+          umask 077
+          secret_file="$(mktemp)"
+          trap 'rm -f "$secret_file"' EXIT
+          doppler secrets get CONTEXT7_API_KEY --plain > "$secret_file"
+          test -s "$secret_file" || { echo 'Required Context7 setting is empty or unavailable' >&2; exit 1; }
+          echo 'Doppler access and selected configuration: verified'

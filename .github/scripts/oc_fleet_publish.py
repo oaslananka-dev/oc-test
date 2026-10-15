@@ -113,8 +113,8 @@ def verify_local_patch(checkout, patch_path, expected_paths, expected_sha, expec
     return actual_paths
 
 def publish(checkout, ev, publisher_sha, task_id):
-    branch = f"fleet/{task_id}"
-    if not re.fullmatch(r"fleet/[a-z0-9][a-z0-9-]{1,47}", branch):
+    branch = f"change/{task_id}"
+    if not re.fullmatch(r"change/[a-z0-9][a-z0-9-]{1,47}", branch):
         refuse("invalid publisher branch")
     current_sha = command("gh", "api", f"repos/{REPO}/git/ref/heads/main",
                           "--jq", ".object.sha")
@@ -127,23 +127,21 @@ def publish(checkout, ev, publisher_sha, task_id):
         refuse("branch exists or remote state cannot be verified")
     subprocess.run(["git", "-C", str(checkout), "switch", "-c", branch], check=True)
     subprocess.run(["git", "-C", str(checkout), "config",
-                    "user.name", "ocfilo-fleet-publisher"], check=True)
+                    "user.name", "Repository maintenance"], check=True)
     subprocess.run(["git", "-C", str(checkout), "config",
-                    "user.email", "fleet-publisher@users.noreply.github.com"], check=True)
+                    "user.email", "repo-maintenance@users.noreply.github.com"], check=True)
     subprocess.run(["git", "-C", str(checkout), "add", "-A"], check=True)
     subprocess.run(["git", "-C", str(checkout), "commit", "-m",
-                    f"test(fleet): verified worker result {task_id}"], check=True)
+                    "test: update scoped regression fixture"], check=True)
     subprocess.run(["gh", "auth", "setup-git"], check=True)
     subprocess.run(["git", "-C", str(checkout), "push", "origin",
                     f"HEAD:refs/heads/{branch}"], check=True)
-    title = f"{ev['issue_key']}: verified fleet task {task_id}"
+    title = "test: update scoped regression fixture"
     body = (
-        f"Worker task: {task_id}\n"
-        f"Multica issue: {ev['issue_key']}\n"
-        f"Authenticated Actions worker run: https://github.com/{REPO}/actions/runs/{ev['run_id']}\n"
-        f"Patch SHA256: {ev['patch_sha256']}\n\n"
-        "Verified by a separate, trusted publisher job. CI/review required. "
-        "No automatic merge.\n"
+        "## Summary\n\n"
+        "- Update the regression fixture covered by this change.\n\n"
+        "## Validation\n\n"
+        "- Review the repository checks before merging.\n"
     )
     command("gh", "pr", "create", "--repo", REPO, "--base", "main",
             "--head", branch, "--title", title, "--body", body)

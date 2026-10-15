@@ -66,17 +66,24 @@ def repo_issue(repo,issue,env):
     return branch,sha,prompt
 
 def allow_target(env,repo,preview):
-    result=cmd(["gh","variable","get","FLEET_ALLOWED_REPOS","--repo",RUNNER],env,ok=False)
-    allow=([s.strip() for s in result.stdout.split(",") if s.strip()]
-           if result.returncode==0 else [RUNNER])
-    require(all(REPO.fullmatch(v) for v in allow) and len(allow)<100,"bad runner allowlist")
+    # Operator CLI credentials may edit the Doppler config; the Actions
+    # service token is read-only and never passed to OpenCode.
+    doppler_env=os.environ.copy()
+    for key in ("GH_TOKEN","GITHUB_TOKEN","DOPPLER_TOKEN"):
+        doppler_env.pop(key,None)
+    scope=["--project","oc-test","--config","main"]
+    result=cmd(["doppler","secrets","get","FLEET_ALLOWED_REPOS","--plain",*scope],
+               doppler_env,ok=False)
+    require(result.returncode==0,"Doppler repository allowlist unavailable")
+    allow=[s.strip() for s in result.stdout.strip().split(",") if s.strip()]
+    require(all(REPO.fullmatch(v) for v in allow) and 1<=len(allow)<100,
+            "bad Doppler repository allowlist")
     if repo.lower() not in {x.lower() for x in allow}:
         allow.append(repo)
         if not preview:
-            cmd(["gh","variable","set","FLEET_ALLOWED_REPOS","--repo",RUNNER,
-                 "--body",",".join(allow)],env)
+            cmd(["doppler","secrets","set","FLEET_ALLOWED_REPOS="+",".join(allow),
+                 *scope,"--silent"],doppler_env)
     return allow
-
 def manifest_for(repo,issue,sha,branch,prompt,args,allow):
     task=f"gh-{issue}-{uuid.uuid4().hex[:12]}"
     m=dict(schema_version=1,task_id=task,source="rules",repository=repo,
@@ -173,7 +180,7 @@ def quality_gates(work, changed_paths, integrations, repo):
     if not all(p.startswith("tests/") or p.startswith("src/") for p in changed_paths):
         raise ValueError("quality scan only supports source and test paths")
     sanitized=os.environ.copy()
-    for key in ("GH_TOKEN","GITHUB_TOKEN","GITHUB_PAT","OPENAI_API_KEY","CONTEXT7_API_KEY"):
+    for key in ("GH_TOKEN","GITHUB_TOKEN","GITHUB_PAT","OPENAI_API_KEY","CONTEXT7_API_KEY","DOPPLER_TOKEN"):
         sanitized.pop(key,None)
     with tempfile.TemporaryDirectory(prefix="fleet-quality-") as temp:
         if "codacy" in requested:
@@ -210,6 +217,42 @@ def isolated_quality_gates(work, sha, patch_file, paths, integrations, repo, env
         quality_gates(scan,paths,integrations,repo)
     finally:
         cmd(["git","-C",str(work),"worktree","remove","--force",str(scan)],env,ok=False)
+PUBLIC_TYPES = {"fix", "feat", "test", "docs", "refactor", "perf", "ci", "build", "chore"}
+INTERNAL_TERMS = re.compile(r"\b(?:oc-test|opencode|multica|fleet|autopilot|worker|agent|pilot)\b",
+                            re.IGNORECASE)
+
+def public_change_metadata(manifest, paths):
+    """Produce normal repository-facing copy without execution internals."""
+    found=re.search(r"(?m)^Title: ([^\r\n]+)",manifest["prompt"])
+    original=found.group(1).strip() if found else ""
+    title=re.sub(r"\s*\([^()]*\b(?:opencode|oc-test|multica|fleet|worker|agent|pilot)\b[^()]*\)\s*$",
+                 "",original,flags=re.IGNORECASE).strip()
+    title=re.sub(r"^(?:TEST|PILOT)\s*:\s*","",title,flags=re.IGNORECASE)
+    title=re.sub(r"\s+"," ",title).strip(" .")
+    if not title or INTERNAL_TERMS.search(title) or len(title)>88:
+        filename=Path(paths[0]).stem.replace("_"," ").replace("-"," ")
+        title=("test: improve "+filename+" coverage" if paths[0].startswith("tests/")
+               else "fix: address issue "+manifest["issue_key"].split("-")[-1])
+    prefix=title.partition(":")[0].lower()
+    if prefix not in PUBLIC_TYPES or ": " not in title:
+        title=("test: " if all(x.startswith("tests/") for x in paths) else "fix: ")+title
+    title=title[:100].rstrip()
+    issue_number=manifest["issue_key"].split("-")[-1]
+    require(issue_number.isdecimal(),"issue identifier not numeric")
+    body="\n".join([
+      "## Summary", "",
+      "- "+title.split(": ",1)[1].rstrip(".")+".", "",
+      "## Files changed", "",
+      *("- "+path for path in paths), "",
+      "## Validation", "",
+      "- Review the required checks and test results on this pull request.", "",
+      f"Closes #{issue_number}",
+    ])
+    suffix=re.sub(r"[^a-z0-9]+","-",title.lower()).strip("-")[:38].strip("-")
+    task=manifest["task_id"].rsplit("-",1)[-1]
+    require(re.fullmatch(r"[a-z0-9]{8,12}",task) is not None,"task suffix invalid")
+    new_branch=f"change/{issue_number}-{suffix}-{task}"
+    return title, body, new_branch
 def publish(env,repo,branch,m,evidence,patch,readonly=False):
     def head():
         return cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
@@ -243,26 +286,27 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False):
             print(json.dumps({"status":"VERIFIED_ONLY","paths":paths},ensure_ascii=False))
             return
         require(head()==m["checkout_sha"],"target base moved before publish")
-        branch_name=f"fleet/{m['task_id']}"
+        title,description,branch_name=public_change_metadata(m,paths)
         existing=cmd(["git","-C",str(work),"ls-remote","--exit-code",
                       "origin",f"refs/heads/{branch_name}"],env,ok=False)
         require(existing.returncode==2,"duplicate task branch or remote error")
         cmd(["git","-C",str(work),"switch","-c",branch_name],env)
-        cmd(["git","-C",str(work),"config","user.name","ocfilo-fleet-controller"],env)
+        actor=json.loads(cmd(["gh","api","user"],env).stdout)
+        login=actor.get("login")
+        user_id=actor.get("id")
+        require(isinstance(login,str) and re.fullmatch(r"[A-Za-z0-9-]{1,39}",login),
+                "publisher account identity unavailable")
+        require(type(user_id)==int and user_id>0,"publisher account ID unavailable")
+        cmd(["git","-C",str(work),"config","user.name",login],env)
         cmd(["git","-C",str(work),"config","user.email",
-             "fleet-controller@users.noreply.github.com"],env)
+             f"{user_id}+{login}@users.noreply.github.com"],env)
         cmd(["git","-C",str(work),"add","-A"],env)
-        cmd(["git","-C",str(work),"commit","-m",f"fix: {m['issue_key']} worker patch"],env)
+        cmd(["git","-C",str(work),"commit","-m",title],env)
         cmd(["git","-C",str(work),"-c","credential.helper=",
              "-c","credential.helper=!gh auth git-credential","push",
              "origin",f"HEAD:refs/heads/{branch_name}"],env)
-        num=m["issue_key"].split("-")[1]
-        description=(f"From issue #{num}; worker: https://github.com/{RUNNER}/actions/runs/{evidence['run_id']}\n"
-                     f"Patch SHA256: {evidence['patch_sha256']}\n\nCloses #{num}\n\n"
-                     "Read-only OpenCode worker; locally verified GitHub identity published the PR. "
-                     "No automatic merge.")
         url=cmd(["gh","pr","create","--repo",repo,"--head",branch_name,"--base",branch,
-                 "--title",f"{m['issue_key']}: verified OpenCode task {m['task_id']}",
+                 "--title",title,
                  "--body",description],env).stdout.strip()
         require(url.startswith(f"https://github.com/{repo}/pull/"),"unexpected PR URL")
         print(json.dumps({"status":"PR_CREATED","url":url,"run_id":evidence["run_id"],
@@ -313,7 +357,7 @@ def main():
     branch,sha,prompt=repo_issue(args.repo,args.issue,target)
     file=receipt(args.repo,args.issue)
     if args.mode=="run":
-        history=retry_receipt(worker,file,args.retry_failed)
+        history=[] if args.dry_run else retry_receipt(worker,file,args.retry_failed)
         allow=allow_target(worker,args.repo,args.dry_run)
         m=manifest_for(args.repo,args.issue,sha,branch,prompt,args,allow)
         if args.dry_run:

@@ -7,7 +7,7 @@ The Windows control process is deterministic code; **no second LLM**.
 1. Provide an existing GitHub issue number, target repository and allowed paths.
 2. Controller checks the selected target GitHub identity has repo push permissions,
    reads the issue directly, binds an immutable default-branch SHA, and registers
-   the target in runner repo FLEET_ALLOWED_REPOS (on live dispatch only).
+   the target in Doppler oc-test/main FLEET_ALLOWED_REPOS (on live dispatch only).
 3. The approved workflow checks out the target at that SHA. OpenCode generates a
    change in its ephemeral runner with no persisted GitHub credentials.
 4. The controller captures the exact GitHub workflow_dispatch run ID (REST
