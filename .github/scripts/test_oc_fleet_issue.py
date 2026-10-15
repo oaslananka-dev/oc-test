@@ -75,6 +75,34 @@ class IssueControllerTests(unittest.TestCase):
             paths, _ = controller.scoped_patch(repo,["tests/test_hashing.py"])
             self.assertEqual(paths,["tests/test_hashing.py"])
 
+    def test_public_pr_metadata_omits_execution_details(self):
+        args=Args()
+        manifest=controller.manifest_for(
+            "oaslananka/nerlex",26,"a"*40,"main",
+            "Resolve GitHub issue #26 in oaslananka/nerlex.\n"
+            "Title: test: canonical JSON hashing edge cases (temporary OpenCode fleet pilot)\n"
+            "Create regression tests.",args,["oaslananka/nerlex"])
+        title,body,branch=controller.public_change_metadata(
+            manifest,["tests/test_hashing.py"])
+        self.assertEqual(title,"test: canonical JSON hashing edge cases")
+        self.assertIn("Closes #26",body)
+        self.assertIn("tests/test_hashing.py",body)
+        self.assertTrue(branch.startswith("change/26-"))
+        for public_text in (title,body,branch):
+            self.assertNotRegex(public_text.lower(),
+                r"oc-test|opencode|multica|worker|agent|fleet|pilot|github.com/.*/actions/runs")
+
+    def test_public_pr_falls_back_when_issue_is_internal(self):
+        args=Args()
+        m=controller.manifest_for("oaslananka/nerlex",50,"a"*40,"main",
+            "Title: OpenCode worker pilot for code change\n\nPlease update tests.",
+            args,["oaslananka/nerlex"])
+        title,body,branch=controller.public_change_metadata(
+            m,["tests/test_hashing.py"])
+        self.assertEqual(title,"test: improve test hashing coverage")
+        self.assertIn("Closes #50",body)
+        self.assertNotIn("worker",title.lower())
+
     def test_manifest_ok(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,
              "main","Fix the sample issue safely.",Args(),["oaslananka-dev/oc-test"])

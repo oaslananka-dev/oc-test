@@ -15,7 +15,7 @@ from task data.
 
 Context7: Official OpenCode v2 @upstash/context7-opencode@0.2.1 plugin
 bundles a remote MCP and skill. The worker reads CONTEXT7_API_KEY only
-from the oc-test repository Actions secret during its agent step. Missing
+from Doppler project oc-test, config main, via the read-only Actions bootstrap token. Missing
 key produces a clear fail-closed error; no headless OAuth is attempted.
 Never store keys in issues, PRs, model logs or committed configuration.
 
@@ -39,5 +39,5 @@ immutable source SHA, artifact digest and changed-path scope, then runs
 selected scans before using its own gh identity to create a PR.
 No automatic merge, PR repair, or privileged agent credentials.
 
-After approving a suitably scoped Context7 key, set the Actions repository
-secret CONTEXT7_API_KEY on oc-test. Do not post the key in this chat.
+Store CONTEXT7_API_KEY only in Doppler oc-test/main. GitHub Actions should
+retain only the read-only DOPPLER_TOKEN bootstrap repository secret.

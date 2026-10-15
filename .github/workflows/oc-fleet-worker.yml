@@ -30,17 +30,27 @@ jobs:
       model: ${{ steps.contract.outputs.model }}
       profile: ${{ steps.contract.outputs.profile }}
       task_id: ${{ steps.contract.outputs.task_id }}
+      allowlist: ${{ steps.contract.outputs.allowlist }}
     steps:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73 # v4
       - name: Validate task contract
         id: contract
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
-          FLEET_ALLOWED_REPOS: ${{ vars.FLEET_ALLOWED_REPOS }}
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
           set -euo pipefail
+          : "${DOPPLER_TOKEN:?DOPPLER_TOKEN GitHub bootstrap secret is required}"
+          export FLEET_ALLOWED_REPOS="$(doppler secrets get FLEET_ALLOWED_REPOS --plain)"
+          test -n "$FLEET_ALLOWED_REPOS" || { echo 'Approved repository configuration missing' >&2; exit 1; }
+          case "$FLEET_ALLOWED_REPOS" in
+            ''|*[!a-zA-Z0-9_./,-]*) echo 'Invalid repository routing configuration' >&2; exit 1 ;;
+          esac
+          printf 'allowlist=%s\n' "$FLEET_ALLOWED_REPOS" >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_contract.py validate
   execute:
     needs: validate
@@ -106,13 +116,26 @@ jobs:
             npm install --global '@codacy/analysis-cli@0.24.0'
             codacy-analysis --version
           fi
+      - name: Install Doppler CLI
+        uses: dopplerhq/cli-action@4819d808ab99e5cde19a0637a16536a4038fad73 # v4
+      - name: Retrieve selected configuration from Doppler
+        if: contains(fromJSON(inputs.manifest_json).integrations, 'context7')
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${DOPPLER_TOKEN:?DOPPLER_TOKEN GitHub bootstrap secret is required}"
+          umask 077
+          doppler secrets get CONTEXT7_API_KEY --plain > "$RUNNER_TEMP/context7.key"
+          test -s "$RUNNER_TEMP/context7.key" || { echo 'Context7 configuration unavailable' >&2; exit 1; }
+          echo 'Selected Doppler configuration resolved'
       - name: Execute unprivileged temporary agent
         id: agent
         working-directory: target
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
           FLEET_MODEL: ${{ needs.validate.outputs.model }}
-          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -126,6 +149,12 @@ jobs:
              +("\nCodacy analyzer available." if "codacy" in m.get("integrations", []) else ""))
           Path(os.environ["RUNNER_TEMP"],"fleet-prompt.txt").write_text(p,encoding="utf-8")
           PY
+          # No Doppler service token is provided to OpenCode. Load only the
+          # requested scoped key and remove the temporary file before the model runs.
+          if [ -f "$RUNNER_TEMP/context7.key" ]; then
+            export CONTEXT7_API_KEY="$(cat "$RUNNER_TEMP/context7.key")"
+            rm -f "$RUNNER_TEMP/context7.key"
+          fi
           # Use an explicit ephemeral config, consistent with the proven F2 pilot.
           # This stays outside the target git worktree and contains no credentials.
           export OPENCODE_CONFIG_CONTENT="$(python3 - <<'PY'
@@ -139,7 +168,7 @@ jobs:
           }
           if "context7" in m.get("integrations", []):
               if not os.getenv("CONTEXT7_API_KEY"):
-                  raise SystemExit("Context7 selected but CONTEXT7_API_KEY Actions secret absent")
+                  raise SystemExit("Context7 selected but Doppler configuration missing")
               cfg["plugins"] = ["@upstash/context7-opencode@0.2.1"]
           # OpenCode v2 currently has no LSP runtime; Ruff/mypy are authoritative.
           print(json.dumps(cfg, separators=(",", ":")))
@@ -180,12 +209,13 @@ jobs:
         if: always()
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
-          FLEET_ALLOWED_REPOS: ${{ vars.FLEET_ALLOWED_REPOS }}
           FLEET_TARGET: ${{ github.workspace }}/target
           FLEET_RESULT: ${{ runner.temp }}/fleet-result
+          FLEET_ALLOWED_REPOS: ${{ needs.validate.outputs.allowlist }}
           FLEET_AGENT_OK: ${{ steps.agent.outputs.ok }}
         run: |
           set -euo pipefail
+          test -n "$FLEET_ALLOWED_REPOS" || { echo 'Trusted validation output missing' >&2; exit 1; }
           python3 runner/.github/scripts/oc_fleet_contract.py gate
       - name: Store evidence only
         if: always()
