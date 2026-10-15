@@ -205,6 +205,26 @@ def receipt(repo,issue):
     loc.mkdir(exist_ok=True)
     return loc/(hashlib.sha256(f"{repo.lower()}#{issue}".encode()).hexdigest()[:24]+".json")
 
+def retry_receipt(worker_env, path, allowed):
+    if not path.exists():
+        return []
+    require(allowed, f"issue already dispatched; use --retry-failed only after a terminal failure: {path}")
+    state=json.loads(path.read_text(encoding="utf-8"))
+    number=state.get("run_id")
+    require(type(number)==int and number>0,"previous receipt has no native run ID")
+    history=state.get("history",[])
+    require(type(history)==list and len(history)<2,
+            "maximum three total attempts reached")
+    last=gh(worker_env,f"repos/{RUNNER}/actions/runs/{number}")
+    require(last.get("id")==number and last.get("status")=="completed"
+            and last.get("conclusion") in ("failure","cancelled","timed_out"),
+            "prior run is not a verified terminal failure")
+    old=state.get("manifest") or {}
+    require(old.get("task_id") and old.get("repository"),
+            "previous task identity missing")
+    return history+[{"task_id":old["task_id"],"run_id":number,
+                     "outcome":last["conclusion"]}]
+
 def main():
     a=argparse.ArgumentParser()
     a.add_argument("mode",choices=("run","resume"))
@@ -216,6 +236,7 @@ def main():
     a.add_argument("--worker-account",default="oaslananka")
     a.add_argument("--target-account",default="oaslananka")
     a.add_argument("--dry-run",action="store_true")
+    a.add_argument("--retry-failed",action="store_true")
     a.add_argument("--verify-only",action="store_true")
     args=a.parse_args()
     worker=identity(args.worker_account)
@@ -223,7 +244,7 @@ def main():
     branch,sha,prompt=repo_issue(args.repo,args.issue,target)
     file=receipt(args.repo,args.issue)
     if args.mode=="run":
-        require(not file.exists(),f"existing receipt {file}; resume instead of duplicate dispatch")
+        history=retry_receipt(worker,file,args.retry_failed)
         allow=allow_target(worker,args.repo,args.dry_run)
         m=manifest_for(args.repo,args.issue,sha,branch,prompt,args,allow)
         if args.dry_run:
@@ -232,7 +253,7 @@ def main():
                  "scope":args.path,"account":args.target_account},indent=2))
             return
         number=dispatch(worker,m)
-        file.write_text(json.dumps({"run_id":number,"manifest":m},indent=2),
+        file.write_text(json.dumps({"run_id":number,"manifest":m,"history":history},indent=2),
                         encoding="utf-8")
         print(f"DISPATCHED: {RUNNER} Actions run {number}; receipt {file}",flush=True)
     else:
