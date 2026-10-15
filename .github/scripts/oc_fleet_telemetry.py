@@ -11,6 +11,7 @@ import sys
 import time
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 MAX_LINE = 128 * 1024
 MAX_EVENTS = 10000
@@ -92,7 +93,7 @@ def push(endpoint, audience, batch):
 
 
 def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
-            endpoint=None, audience="ocfilo-telemetry"):
+            endpoint=None, audience="ocfilo-telemetry", stats=None):
     stdin = stdin if stdin is not None else sys.stdin.buffer
     sender = sender or push
     run_id = str(run_id or os.environ.get("GITHUB_RUN_ID", ""))
@@ -106,11 +107,14 @@ def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
                      or urlsplit(endpoint).password
                      or urlsplit(endpoint).fragment):
         raise ValueError("telemetry endpoint requires HTTPS")
+    stats = stats if stats is not None else {}
+    stats.update(lines=0, accepted=0, sent=0, failures=0, http_status=0)
     pending = []
     seq = 0
     last_flush = time.monotonic()
     offline_until = 0.0
     for line in stdin:
+        stats["lines"] += 1
         if len(line) > MAX_LINE:
             continue
         try:
@@ -121,6 +125,7 @@ def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
         if item is None:
             continue
         seq += 1
+        stats["accepted"] += 1
         if seq > MAX_EVENTS:
             break
         item.update(run_id=run_id, attempt=attempt, seq=seq)
@@ -131,25 +136,48 @@ def forward(stdin=None, sender=None, *, run_id=None, attempt=None,
             try:
                 sender(endpoint, audience, pending)
                 pending.clear()
+                stats["sent"] += 1
+            except HTTPError as exc:
+                stats["failures"] += 1
+                stats["http_status"] = exc.code
+                pending[:] = pending[-MAX_BATCH:]
+                offline_until = time.monotonic() + 60
             except (OSError, ValueError, KeyError, TimeoutError):
+                stats["failures"] += 1
                 # No agent failure if observability is unavailable; bounded in-memory buffer.
                 pending[:] = pending[-MAX_BATCH:]
                 offline_until = time.monotonic() + 60
             last_flush = time.monotonic()
-    offline_until = 0.0
     if endpoint and pending and time.monotonic() >= offline_until:
         try:
             sender(endpoint, audience, pending)
+            stats["sent"] += 1
+        except HTTPError as exc:
+            stats["failures"] += 1
+            stats["http_status"] = exc.code
         except (OSError, ValueError, KeyError, TimeoutError):
-            pass
+            stats["failures"] += 1
     return seq
 
 
 if __name__ == "__main__":
     try:
-        count = forward()
+        stats = {}
+        count = forward(stats=stats)
+        report = ("Telemetry: lines={lines}, accepted={accepted}, "
+                  "sent_batches={sent}, failures={failures}, http={http_status}"
+                  .format(**stats))
+        print(report, file=sys.stderr)
+        summary = os.getenv("GITHUB_STEP_SUMMARY")
+        if summary:
+            with open(summary, "a", encoding="utf-8") as fp:
+                fp.write(report + "\n")
+        if os.getenv("FLEET_TELEMETRY_PROBE") == "1" and stats["sent"] == 0:
+            sys.exit(2)
         print("Telemetry processed %d bounded events" % count, file=sys.stderr)
     except (ValueError, KeyError) as exc:
         print("Telemetry unavailable (%s)" % type(exc).__name__, file=sys.stderr)
+        if os.getenv("FLEET_TELEMETRY_PROBE") == "1":
+            sys.exit(2)
         # Never break an otherwise successful coding task.
         sys.exit(0)
