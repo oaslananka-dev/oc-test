@@ -68,6 +68,23 @@ jobs:
           set -euo pipefail
           npm install --global '@opencode/cli@2.0.27'
           opencode --version
+      - uses: actions/setup-python@v6
+        if: needs.validate.outputs.profile == 'python-ruff'
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
+        if: needs.validate.outputs.profile == 'python-ruff'
+        with:
+          version: '0.12.21'
+          enable-cache: false
+      - name: Prepare locked Python project environment
+        if: needs.validate.outputs.profile == 'python-ruff'
+        working-directory: target
+        run: |
+          set -euo pipefail
+          if [ -f uv.lock ] && [ -f pyproject.toml ]; then
+            uv sync --locked --extra dev --no-install-project --no-build
+          fi
       - name: Install reviewed profile tools
         env:
           FLEET_PROFILE: ${{ needs.validate.outputs.profile }}
@@ -79,12 +96,23 @@ jobs:
             security-semgrep) pipx install 'semgrep==1.141.0' ;;
             *) exit 3 ;;
           esac
+      - name: Install selected vetted analyzer
+        env:
+          FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+        run: |
+          set -euo pipefail
+          if python3 -c 'import json,os,sys;sys.exit(0 if "codacy" in json.loads(os.environ["FLEET_MANIFEST_JSON"]).get("integrations", []) else 1)'; then
+            pipx install 'lizard==1.24.1'
+            npm install --global '@codacy/analysis-cli@0.24.0'
+            codacy-analysis --version
+          fi
       - name: Execute unprivileged temporary agent
         id: agent
         working-directory: target
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
           FLEET_MODEL: ${{ needs.validate.outputs.model }}
+          CONTEXT7_API_KEY: ${{ secrets.CONTEXT7_API_KEY }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -93,19 +121,28 @@ jobs:
           m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
           p=(m["prompt"]+"\nAllowed paths: "+", ".join(m["allowed_paths"])
              +"\nDo not push, merge, use credentials or edit workflow files."
-             +"\nRun relevant tests.")
+             +"\nRun relevant tests."
+             +("\nContext7 docs tools enabled." if "context7" in m.get("integrations", []) else "")
+             +("\nCodacy analyzer available." if "codacy" in m.get("integrations", []) else ""))
           Path(os.environ["RUNNER_TEMP"],"fleet-prompt.txt").write_text(p,encoding="utf-8")
           PY
           # Use an explicit ephemeral config, consistent with the proven F2 pilot.
           # This stays outside the target git worktree and contains no credentials.
           export OPENCODE_CONFIG_CONTENT="$(python3 - <<'PY'
           import json, os
-          print(json.dumps({
+          m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
+          cfg={
               "$schema": "https://opencode.ai/config.json",
               "model": os.environ["FLEET_MODEL"],
               "default_agent": "build",
               "share": "disabled",
-          }, separators=(",", ":")))
+          }
+          if "context7" in m.get("integrations", []):
+              if not os.getenv("CONTEXT7_API_KEY"):
+                  raise SystemExit("Context7 selected but CONTEXT7_API_KEY Actions secret absent")
+              cfg["plugins"] = ["@upstash/context7-opencode@0.2.1"]
+          # OpenCode v2 currently has no LSP runtime; Ruff/mypy are authoritative.
+          print(json.dumps(cfg, separators=(",", ":")))
           PY
           )"
           opencode debug config > "$RUNNER_TEMP/fleet-resolved-config.json"

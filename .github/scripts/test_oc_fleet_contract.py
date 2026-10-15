@@ -79,6 +79,14 @@ class FleetTests(unittest.TestCase):
             self.assertIsNone(evidence["patch_sha256"])
             self.assertFalse((output/"changes.patch").exists())
 
+    def test_curated_optional_integrations(self):
+        for integrations in ([], ["codacy"], ["sonarqube","context7"], ["codacy","context7","sonarqube"]):
+            m=parse({"integrations":integrations})
+            self.assertEqual(m["integrations"], integrations)
+        for invalid in (["arbitrary-mcp"], ["codacy","codacy"], [1], "codacy", ["sonarqube"]*4):
+            with self.subTest(invalid=invalid), self.assertRaises((TypeError, ValueError)):
+                parse({"integrations":invalid})
+
     def test_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
