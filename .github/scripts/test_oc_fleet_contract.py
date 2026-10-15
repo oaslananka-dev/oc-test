@@ -54,6 +54,31 @@ class FleetTests(unittest.TestCase):
             ev=fleet.create_failure_evidence(BASE,tmp,1,1)
             self.assertEqual(ev["outcome"],"FAILED")
             self.assertNotIn(BASE["prompt"],(Path(tmp)/"result.json").read_text())
+    def test_scope_failure_always_records_evidence(self):
+        import os
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            target=root/"target"
+            target.mkdir()
+            output=root/"evidence"
+            with patch.dict(os.environ, {
+                "FLEET_MANIFEST_JSON": json.dumps(BASE),
+                "FLEET_RESULT": str(output),
+                "FLEET_TARGET": str(target),
+                "FLEET_AGENT_OK": "true",
+                "GITHUB_RUN_ID": "123",
+                "GITHUB_RUN_ATTEMPT": "1",
+            }):
+                import sys
+                with patch.object(sys, "argv", ["oc_fleet_contract.py", "gate"]):
+                    with self.assertRaisesRegex(ValueError, "failure evidence recorded"):
+                        fleet.cli()
+            evidence=json.loads((output/"result.json").read_text())
+            self.assertEqual(evidence["outcome"], "FAILED")
+            self.assertIsNone(evidence["patch_sha256"])
+            self.assertFalse((output/"changes.patch").exists())
+
     def test_symlink(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
