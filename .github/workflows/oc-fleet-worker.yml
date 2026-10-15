@@ -32,6 +32,7 @@ jobs:
       task_id: ${{ steps.contract.outputs.task_id }}
       allowlist: ${{ steps.contract.outputs.allowlist }}
       tool_profile_b64: ${{ steps.contract.outputs.tool_profile_b64 }}
+      telemetry_url: ${{ steps.contract.outputs.telemetry_url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -57,6 +58,16 @@ jobs:
             export FLEET_TOOL_CATALOG="$(doppler secrets get FLEET_TOOL_PROFILES --plain)"
             test -n "$FLEET_TOOL_CATALOG" || { echo 'Named tool profiles missing in Doppler' >&2; exit 1; }
           fi
+          telemetry_url=""
+          if candidate="$(doppler secrets get FLEET_TELEMETRY_URL --plain 2>/dev/null)"; then
+            if [ -n "$candidate" ]; then
+              [[ "$candidate" =~ ^https://[a-zA-Z0-9._:-]+/[a-zA-Z0-9_/-]+$ ]] || {
+                echo 'Invalid HTTPS telemetry endpoint' >&2; exit 1;
+              }
+              telemetry_url="$candidate"
+            fi
+          fi
+          printf 'telemetry_url=%s\n' "$telemetry_url" >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_tools.py select >> "$GITHUB_OUTPUT"
           python3 .github/scripts/oc_fleet_contract.py validate
   execute:
@@ -64,6 +75,9 @@ jobs:
     if: inputs.run_mode == 'execute'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -169,6 +183,7 @@ jobs:
         working-directory: target
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+          FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}
           FLEET_MODEL: ${{ needs.validate.outputs.model }}
         run: |
           set -euo pipefail
@@ -229,11 +244,23 @@ jobs:
           opencode debug config > "$RUNNER_TEMP/fleet-resolved-config.json"
           start=$SECONDS
           set +e
-          timeout --signal=TERM --kill-after=15s 1200s \
-              opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
-              "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
-              > "$RUNNER_TEMP/fleet-agent.log" 2>&1
-          rc=$?
+          if [ -n "$FLEET_TELEMETRY_URL" ]; then
+            # OIDC available only to the observer, not the model process.
+            timeout --signal=TERM --kill-after=15s 1200s \
+                env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+                opencode run --standalone --model "$FLEET_MODEL" --agent build --format json \
+                "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
+                2> "$RUNNER_TEMP/fleet-agent.log" \
+              | python3 runner/.github/scripts/oc_fleet_telemetry.py \
+                2>> "$RUNNER_TEMP/fleet-agent.log"
+            rc=${PIPESTATUS[0]}
+          else
+            timeout --signal=TERM --kill-after=15s 1200s \
+                opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
+                "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
+                > "$RUNNER_TEMP/fleet-agent.log" 2>&1
+            rc=$?
+          fi
           set -e
           echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
           echo "seconds=$((SECONDS - start))" >> "$GITHUB_OUTPUT"
@@ -261,6 +288,7 @@ jobs:
         if: always()
         env:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
+          FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}
           FLEET_TARGET: ${{ github.workspace }}/target
           FLEET_RESULT: ${{ runner.temp }}/fleet-result
           FLEET_ALLOWED_REPOS: ${{ needs.validate.outputs.allowlist }}
