@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""Offline regression cases for models-free issue controller."""
+import importlib.util,json,os,sys,tempfile,unittest
+from pathlib import Path
+from unittest.mock import patch,MagicMock
+spec=importlib.util.spec_from_file_location("controller",Path(__file__).with_name("oc_fleet_issue.py"))
+controller=importlib.util.module_from_spec(spec)
+sys.modules["oc_fleet_issue"]=controller
+spec.loader.exec_module(controller)
+class Args:
+    model="opencode/big-pickle"
+    profile="base"
+    path=["playground/fleet/"]
+
+class IssueControllerTests(unittest.TestCase):
+    def test_manifest_ok(self):
+        m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,
+             "main","Fix the sample issue safely.",Args(),["oaslananka-dev/oc-test"])
+        self.assertEqual(m["issue_key"],"GH-12")
+        self.assertEqual(m["source"],"rules")
+        self.assertFalse(m["publish"])
+        self.assertTrue(m["task_id"].startswith("gh-12-"))
+    def test_manifest_reject_unsafe(self):
+        a=Args()
+        for paths in [[],[".github/"],["playground/../"],["playground/fleet/","playground/FLEET/"]]:
+            with self.subTest(paths=paths),self.assertRaises(ValueError):
+                b=Args();b.path=paths
+                controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+                                        "Fix the issue and run tests.",b,["oaslananka-dev/oc-test"])
+        with self.assertRaises(ValueError):
+            controller.manifest_for("other-owner/repo",12,"a"*40,"main",
+                 "Fix the issue and run tests.",a,["oaslananka-dev/oc-test"])
+    def test_issue_validation(self):
+        data={"full_name":"oaslananka-dev/oc-test","permissions":{"push":True},
+             "default_branch":"main","private":False}
+        issue={"number":12,"state":"open","title":"Task","body":"Fix a broken fixture."}
+        def fake_gh(env,path):
+            return issue if path.endswith("/issues/12") else data
+        def fake_cmd(cmd,env,**kw):
+            return MagicMock(stdout="a"*40,returncode=0)
+        with patch.object(controller,"gh",side_effect=fake_gh),patch.object(controller,"cmd",side_effect=fake_cmd):
+            self.assertEqual(controller.repo_issue("oaslananka-dev/oc-test",12,{})[1],"a"*40)
+            data["permissions"]["push"]=False
+            with self.assertRaisesRegex(ValueError,"cannot push"):
+                controller.repo_issue("oaslananka-dev/oc-test",12,{})
+    def test_private_target_fails_closed(self):
+        with patch.object(controller,"gh",return_value={"full_name":"oaslananka-dev/oc-test",
+             "permissions":{"push":True},"private":True}):
+            with self.assertRaisesRegex(ValueError,"private target"):
+                controller.repo_issue("oaslananka-dev/oc-test",12,{})
+    def test_allowlist_registered(self):
+        with patch.object(controller,"cmd",return_value=MagicMock(stdout="oaslananka-dev/oc-test",returncode=0)) as call:
+            allow=controller.allow_target({},"org/name",preview=False)
+            self.assertIn("org/name",allow)
+            self.assertEqual(call.call_count,2)
+        with patch.object(controller,"cmd",return_value=MagicMock(stdout="oaslananka-dev/oc-test",returncode=0)) as call:
+            controller.allow_target({},"org/name",preview=True)
+            self.assertEqual(call.call_count,1)
+    def test_dispatch_binds_native_run(self):
+        m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+                 "Fix a test regression safely.",Args(),["oaslananka-dev/oc-test"])
+        with patch.object(controller,"api_post",return_value={"workflow_run_id":1234}) as p:
+            self.assertEqual(controller.dispatch({},m),1234)
+            self.assertEqual(p.call_args.args[2]["return_run_details"],True)
+        with patch.object(controller,"api_post",return_value={}):
+            with self.assertRaisesRegex(ValueError,"run ID missing"):
+                controller.dispatch({},m)
+    def test_receipts_unique_by_repo_issue(self):
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{"LOCALAPPDATA":tmp}):
+            a=controller.receipt("alice/repo",42)
+            self.assertEqual(a,controller.receipt("ALICE/REPO",42))
+            self.assertNotEqual(a,controller.receipt("alice/repo",43))
+    def test_source_verification_blocks_fake_run(self):
+        m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+                 "Fix the test issue safely.",Args(),["oaslananka-dev/oc-test"])
+        def fake_gh(env,path):
+            if path.endswith("runs/777"):
+                return {"id":777,"workflow_id":50,"repository":{"id":2,"full_name":controller.RUNNER},
+                    "status":"completed","conclusion":"failure","event":"workflow_dispatch",
+                    "head_branch":"main","run_attempt":1}
+            if path.endswith(controller.WORKFLOW):
+                return {"id":50}
+            return {"id":2}
+        with patch.object(controller,"gh",side_effect=fake_gh):
+            with self.assertRaisesRegex(ValueError,"untrusted worker run"):
+                controller.verify_artifact({},777,m)
+    def test_base_advance_blocks_publish(self):
+        m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,"main",
+             "Fix this issue and run tests.",Args(),["oaslananka-dev/oc-test"])
+        with patch.object(controller,"cmd",return_value=MagicMock(stdout="b"*40,returncode=0)):
+            with self.assertRaisesRegex(ValueError,"target base changed"):
+                controller.publish({},"oaslananka-dev/oc-test","main",m,{},b"",readonly=True)
+if __name__=="__main__":unittest.main(verbosity=2)
