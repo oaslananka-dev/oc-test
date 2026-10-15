@@ -54,6 +54,7 @@ jobs:
         with:
           repository: ${{ needs.validate.outputs.target }}
           ref: ${{ needs.validate.outputs.sha }}
+          token: ${{ secrets.FLEET_CHECKOUT_TOKEN || github.token }}
           path: target
           persist-credentials: false
       - uses: actions/setup-node@v5
