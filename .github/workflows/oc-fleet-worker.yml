@@ -22,7 +22,7 @@ env:
   PYTHONDONTWRITEBYTECODE: '1'
 jobs:
   validate:
-    if: github.repository == 'oaslananka-dev/oc-test' && github.ref == 'refs/heads/main'
+    if: github.repository == (vars.FLEET_WORKER_REPOSITORY || 'oaslananka-dev/oc-test') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
