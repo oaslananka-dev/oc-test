@@ -13,6 +13,56 @@ class Args:
     path=["playground/fleet/"]
 
 class IssueControllerTests(unittest.TestCase):
+    def test_default_worker_repo_preserved(self):
+        repo={"full_name":controller.RUNNER,"private":False,"archived":False,
+              "permissions":{"push":True}}
+        workflow={"id":100,"state":"active",
+                  "path":".github/workflows/oc-fleet-worker.yml"}
+        with patch.object(controller,"gh",side_effect=[repo,workflow]) as get, \
+             patch.object(controller,"cmd") as doppler:
+            self.assertEqual(controller.authorized_worker_repo({},controller.RUNNER),
+                             controller.RUNNER)
+            self.assertEqual(get.call_count,2)
+            doppler.assert_not_called()
+
+    def test_cross_account_worker_must_be_allowlisted(self):
+        with patch.object(controller,"cmd",
+                          return_value=MagicMock(returncode=0,stdout="Other/worker")) as get, \
+             patch.object(controller,"gh") as gh:
+            with self.assertRaisesRegex(ValueError,"trusted allowlist"):
+                controller.authorized_worker_repo({},"MakerParsDev/oc-test")
+            gh.assert_not_called()
+            self.assertEqual(get.call_count,1)
+
+    def test_portable_worker_requires_write_access_and_active_workflow(self):
+        repo={"full_name":"MakerParsDev/oc-test","private":False,"archived":False,
+              "permissions":{"push":True}}
+        workflow={"id":101,"state":"active",
+                  "path":".github/workflows/oc-fleet-worker.yml"}
+        with patch.object(controller,"cmd",
+                          return_value=MagicMock(returncode=0,stdout="MakerParsDev/oc-test")):
+            with patch.object(controller,"gh",side_effect=[repo,workflow]):
+                self.assertEqual(controller.authorized_worker_repo({},"MakerParsDev/oc-test"),
+                                 "MakerParsDev/oc-test")
+            with patch.object(controller,"gh",side_effect=[{**repo,
+                        "permissions":{"push":False}},workflow]):
+                with self.assertRaisesRegex(ValueError,"cannot dispatch"):
+                    controller.authorized_worker_repo({},"MakerParsDev/oc-test")
+            with patch.object(controller,"gh",side_effect=[repo,{**workflow,
+                        "state":"disabled_manually"}]):
+                with self.assertRaisesRegex(ValueError,"no active expected workflow"):
+                    controller.authorized_worker_repo({},"MakerParsDev/oc-test")
+
+    def test_receipt_cannot_switch_worker_without_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            f=Path(tmp)/"receipt.json"
+            f.write_text(json.dumps({"worker_repo":"MakerParsDev/oc-test",
+                                     "run_id":123,"history":[]}),encoding="utf-8")
+            with patch.object(controller,"gh") as gh:
+                with self.assertRaisesRegex(ValueError,"different worker repository"):
+                    controller.retry_receipt({},f,True,runner=controller.RUNNER)
+                gh.assert_not_called()
+
     def test_codacy_windows_launcher(self):
         with patch.object(controller.shutil, "which",
                           return_value=r"C:\Tools\codacy-analysis.cmd"):

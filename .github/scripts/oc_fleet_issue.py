@@ -111,19 +111,48 @@ def api_post(env,url,body):
         raw=cmd(["gh","api","-X","POST",url,"--input",str(p)],env).stdout
         return json.loads(raw) if raw.strip() else {}
 
-def dispatch(env,m):
+def authorized_worker_repo(env, selected):
+    """Resolve a public runner with verified workflow and caller write access."""
+    require(isinstance(selected,str) and bool(REPO.fullmatch(selected)),
+            "invalid worker repository")
+    if selected.lower()!=RUNNER.lower():
+        doppler_env=os.environ.copy()
+        for key in ("GH_TOKEN","GITHUB_TOKEN","DOPPLER_TOKEN"):
+            doppler_env.pop(key,None)
+        allowed=cmd(["doppler","secrets","get","FLEET_WORKER_REPOS","--plain",
+                     "--project","oc-test","--config","main"],
+                    doppler_env,ok=False)
+        require(allowed.returncode==0,"Doppler worker repo allowlist unavailable")
+        names=[v.strip() for v in allowed.stdout.strip().split(",") if v.strip()]
+        require(1<=len(names)<100 and all(REPO.fullmatch(v) for v in names)
+                and selected.lower() in {v.lower() for v in names},
+                "worker repository not on the trusted allowlist")
+    rep=gh(env,f"repos/{selected}")
+    require(rep.get("full_name","").lower()==selected.lower()
+            and not rep.get("private") and not rep.get("archived")
+            and (rep.get("permissions") or {}).get("push") is True,
+            "selected account cannot dispatch to a public worker repository")
+    workflow=gh(env,f"repos/{selected}/actions/workflows/{WORKFLOW}")
+    require(workflow.get("state")=="active"
+            and workflow.get("path")==f".github/workflows/{WORKFLOW}"
+            and type(workflow.get("id")) is int,
+            "worker repository has no active expected workflow")
+    return rep["full_name"]
+
+
+def dispatch(env,m,runner=RUNNER):
     body=dict(ref="main",return_run_details=True,inputs={
          "manifest_json":json.dumps(m,separators=(",",":"),ensure_ascii=False),
          "run_mode":"execute"})
-    result=api_post(env,f"repos/{RUNNER}/actions/workflows/{WORKFLOW}/dispatches",body)
+    result=api_post(env,f"repos/{runner}/actions/workflows/{WORKFLOW}/dispatches",body)
     number=result.get("workflow_run_id")
     require(type(number)==int and number>0,"dispatch accepted but run ID missing: reconcile before retry")
     return number
 
-def await_run(env,number,timeout=1900):
+def await_run(env,number,timeout=1900,runner=RUNNER):
     start=time.monotonic()
     while time.monotonic()-start<timeout:
-        obj=gh(env,f"repos/{RUNNER}/actions/runs/{number}")
+        obj=gh(env,f"repos/{runner}/actions/runs/{number}")
         if obj.get("status")=="completed":
             require(obj.get("conclusion")=="success",
                     f"worker {number} ended {obj.get('conclusion')}")
@@ -148,19 +177,19 @@ def verify_worker_jobs(response):
             "worker jobs not all successful or unknown job present")
 
 
-def verify_artifact(env,number,m):
-    run=gh(env,f"repos/{RUNNER}/actions/runs/{number}")
-    wf=gh(env,f"repos/{RUNNER}/actions/workflows/{WORKFLOW}")
-    rep=gh(env,f"repos/{RUNNER}")
+def verify_artifact(env,number,m,runner=RUNNER):
+    run=gh(env,f"repos/{runner}/actions/runs/{number}")
+    wf=gh(env,f"repos/{runner}/actions/workflows/{WORKFLOW}")
+    rep=gh(env,f"repos/{runner}")
     require(run.get("id")==number and run.get("workflow_id")==wf.get("id")
             and run.get("repository",{}).get("id")==rep.get("id")
-            and run.get("repository",{}).get("full_name")==RUNNER
+            and run.get("repository",{}).get("full_name")==runner
             and run.get("status")=="completed" and run.get("conclusion")=="success"
             and run.get("event")=="workflow_dispatch" and run.get("head_branch")=="main"
             and run.get("run_attempt")==1,"untrusted worker run")
-    jobs=gh(env,f"repos/{RUNNER}/actions/runs/{number}/jobs?per_page=100")
+    jobs=gh(env,f"repos/{runner}/actions/runs/{number}/jobs?per_page=100")
     verify_worker_jobs(jobs)
-    arts=gh(env,f"repos/{RUNNER}/actions/runs/{number}/artifacts?per_page=100")
+    arts=gh(env,f"repos/{runner}/actions/runs/{number}/artifacts?per_page=100")
     name=f"fleet-{number}-1-{m['task_id']}"
     matches=[a for a in arts.get("artifacts",[]) if a.get("name")==name]
     require(arts.get("total_count",0)<=100 and len(matches)==1
@@ -169,7 +198,7 @@ def verify_artifact(env,number,m):
             "artifact identity mismatch")
     with tempfile.TemporaryDirectory(prefix="fleet-evidence-") as t:
         root=Path(t)
-        cmd(["gh","run","download",str(number),"--repo",RUNNER,
+        cmd(["gh","run","download",str(number),"--repo",runner,
              "--name",name,"--dir",str(root)],env)
         require(sorted(x.name for x in root.iterdir())==["changes.patch","result.json"],
                 "unexpected artifact entries")
@@ -340,17 +369,19 @@ def receipt(repo,issue):
     loc.mkdir(exist_ok=True)
     return loc/(hashlib.sha256(f"{repo.lower()}#{issue}".encode()).hexdigest()[:24]+".json")
 
-def retry_receipt(worker_env, path, allowed):
+def retry_receipt(worker_env, path, allowed,runner=RUNNER):
     if not path.exists():
         return []
     require(allowed, f"issue already dispatched; use --retry-failed only after a terminal failure: {path}")
     state=json.loads(path.read_text(encoding="utf-8"))
+    require(state.get("worker_repo",RUNNER).lower()==runner.lower(),
+            "existing issue receipt belongs to a different worker repository")
     number=state.get("run_id")
     require(type(number)==int and number>0,"previous receipt has no native run ID")
     history=state.get("history",[])
     require(type(history)==list and len(history)<2,
             "maximum three total attempts reached")
-    last=gh(worker_env,f"repos/{RUNNER}/actions/runs/{number}")
+    last=gh(worker_env,f"repos/{runner}/actions/runs/{number}")
     require(last.get("id")==number and last.get("status")=="completed"
             and last.get("conclusion") in ("failure","cancelled","timed_out"),
             "prior run is not a verified terminal failure")
@@ -373,12 +404,14 @@ def main():
     a.add_argument("--multica-issue",default="",
                    help="Optional approved Multica issue to receive internal progress")
     a.add_argument("--worker-account",default="oaslananka")
+    a.add_argument("--worker-repo",default=RUNNER)
     a.add_argument("--target-account",default="oaslananka")
     a.add_argument("--dry-run",action="store_true")
     a.add_argument("--retry-failed",action="store_true")
     a.add_argument("--verify-only",action="store_true")
     args=a.parse_args()
     worker=identity(args.worker_account)
+    runner=authorized_worker_repo(worker,args.worker_repo)
     target=identity(args.target_account)
     branch,sha,prompt=repo_issue(args.repo,args.issue,target)
     file=receipt(args.repo,args.issue)
@@ -391,27 +424,29 @@ def main():
                      "--project","oc-test","--config","main"],doppler_env).stdout
         from_catalog(catalog,args.tool_profile)
     if args.mode=="run":
-        history=[] if args.dry_run else retry_receipt(worker,file,args.retry_failed)
+        history=[] if args.dry_run else retry_receipt(worker,file,args.retry_failed,runner=runner)
         allow=allow_target(worker,args.repo,args.dry_run)
         m=manifest_for(args.repo,args.issue,sha,branch,prompt,args,allow)
         if args.dry_run:
             print(json.dumps({"status":"DRY_RUN","repo":args.repo,"issue":args.issue,
                  "sha":sha,"model":args.model,"profile":args.profile,
-                 "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account},indent=2))
+                 "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account,"worker_repo":runner},indent=2))
             return
-        number=dispatch(worker,m)
-        file.write_text(json.dumps({"run_id":number,"manifest":m,"history":history},indent=2),
+        number=dispatch(worker,m,runner=runner)
+        file.write_text(json.dumps({"run_id":number,"worker_repo":runner,"manifest":m,"history":history},indent=2),
                         encoding="utf-8")
-        print(f"DISPATCHED: {RUNNER} Actions run {number}; receipt {file}",flush=True)
+        print(f"DISPATCHED: {runner} Actions run {number}; receipt {file}",flush=True)
     else:
         require(file.exists(),"no receipt found for resume")
         data=json.loads(file.read_text(encoding="utf-8"))
         m=data["manifest"];number=data["run_id"]
+        require(data.get("worker_repo",RUNNER).lower()==runner.lower(),
+                "resume worker repository does not match existing receipt")
         require(m["repository"].lower()==args.repo.lower()
                 and m["issue_key"]==f"GH-{args.issue}" and m["checkout_sha"]==sha,
                 "resume receipt stale or not for this issue")
-    await_run(worker,number)
-    evidence,patch=verify_artifact(worker,number,m)
+    await_run(worker,number,runner=runner)
+    evidence,patch=verify_artifact(worker,number,m,runner=runner)
     publish(target,args.repo,branch,m,evidence,patch,readonly=args.verify_only,
             expected_account=args.target_account)
 

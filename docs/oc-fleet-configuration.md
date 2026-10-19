@@ -82,3 +82,28 @@ refuses real writes if it cannot verify an authenticated human identity.
 Already merged commits are NOT rewritten to remove historic attribution.
 Force-pushing protected history would change SHAs and invalidate existing
 references and verification signatures.
+
+
+## Portable worker repositories (optional)
+
+The original `oaslananka-dev/oc-test` remains the default worker and needs
+no routing migration. For each additional public GitHub-account worker:
+
+1. Install the reviewed worker workflow and its trusted scripts on that
+   repository's protected `main` branch.
+2. Set its repository Actions variable `FLEET_WORKER_REPOSITORY` to its exact
+   `owner/repo`. Without this setting, a copied workflow refuses to run.
+3. Install the read-only `DOPPLER_TOKEN` bootstrap secret for the `oc-test/main`
+   configuration. Never expose it to the coding model.
+4. Add the exact public repository name to `FLEET_WORKER_REPOS` in Doppler,
+   and use `--worker-repo owner/repo --worker-account approved-user` on the
+   trusted dispatcher. The selected account must have write access to trigger
+   that repository's Actions workflow.
+5. Keep `--target-account` independently scoped to the target GitHub project.
+   The unprivileged worker never receives the target publication token.
+
+The dispatcher verifies the source repository and active workflow before
+dispatch, and again checks the immutable native run/artifact provenance before
+publication. One target issue keeps a single receipt across worker repositories;
+changing its worker requires explicitly reconciling the existing run first.
+Worker repositories are *not* created or enabled by adding them to Doppler.
