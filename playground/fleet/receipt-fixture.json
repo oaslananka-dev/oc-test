@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "scenario": "single-worker-receipt",
+  "source_repository": "oaslananka-dev/oc-test",
+  "expected_outcome": "SUCCEEDED"
+}
