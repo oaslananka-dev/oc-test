@@ -144,7 +144,30 @@ def scoped_patch(repo, scopes):
     return paths, patch
 
 
+def normalize_local_commits(repo, approved_sha):
+    """Recover an ephemeral agent's local commits as an uncommitted scoped patch.
+
+    Never accept a rewritten/unrelated history; the scope gate still validates
+    every changed path against the immutable checkout SHA after normalization.
+    """
+    current = git(repo, "rev-parse", "HEAD").strip()
+    if current == approved_sha:
+        return
+    ancestry = subprocess.run(
+        ["git", "-C", str(repo), "merge-base", "--is-ancestor", approved_sha, "HEAD"],
+        capture_output=True,
+    )
+    if ancestry.returncode != 0:
+        raise ValueError("agent HEAD is not descended from the approved checkout SHA")
+    # Only the ephemeral checkout is rewritten, not a remote branch.
+    subprocess.run(["git", "-C", str(repo), "reset", "--mixed", approved_sha],
+                   check=True, stdout=subprocess.DEVNULL)
+    if git(repo, "rev-parse", "HEAD").strip() != approved_sha:
+        raise ValueError("failed to restore approved checkout SHA")
+
+
 def create_evidence(manifest, repo, output, run_id, attempt):
+    normalize_local_commits(repo, manifest["checkout_sha"])
     if git(repo, "rev-parse", "HEAD").strip() != manifest["checkout_sha"]:
         raise ValueError("agent base changed")
     paths, patch = scoped_patch(repo, manifest["allowed_paths"])
