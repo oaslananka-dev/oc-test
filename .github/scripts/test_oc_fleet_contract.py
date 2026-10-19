@@ -68,6 +68,74 @@ class FleetTests(unittest.TestCase):
             self.assertEqual(ev["outcome"],"SUCCEEDED");self.assertFalse(ev["published"])
             (root/"unrelated.txt").write_text("bad")
             with self.assertRaises(ValueError): fleet.scoped_patch(root,BASE["allowed_paths"])
+    def test_local_agent_commit_is_normalized_and_scoped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fleet")
+            git("config", "user.email", "fleet@example.invalid")
+            (root / "playground/fleet").mkdir(parents=True)
+            target = root / "playground/fleet/receipt.json"
+            target.write_text('{"status":"before"}\n')
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            target.write_text('{"status":"after"}\n')
+            git("add", ".")
+            git("commit", "-qm", "agent committed local changes")
+            self.assertNotEqual(git("rev-parse", "HEAD"), base)
+            evidence = fleet.create_evidence(
+                {**BASE, "checkout_sha": base}, root, root / "result", 100, 1
+            )
+            self.assertEqual(git("rev-parse", "HEAD"), base)
+            self.assertEqual(evidence["paths"], ["playground/fleet/receipt.json"])
+            self.assertIn(b'+{"status":"after"}', (root / "result/changes.patch").read_bytes())
+
+    def test_committed_out_of_scope_change_still_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fleet")
+            git("config", "user.email", "fleet@example.invalid")
+            (root / "playground/fleet").mkdir(parents=True)
+            (root / "playground/fleet/keep.txt").write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            (root / "out-of-scope.txt").write_text("not allowed\n")
+            git("add", ".")
+            git("commit", "-qm", "unauthorized file")
+            with self.assertRaisesRegex(ValueError, "outside approved scope"):
+                fleet.create_evidence({**BASE, "checkout_sha": base},
+                                      root, root / "result", 101, 1)
+
+    def test_unrelated_head_is_never_normalized(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "Fleet")
+            git("config", "user.email", "fleet@example.invalid")
+            (root / "playground/fleet").mkdir(parents=True)
+            (root / "playground/fleet/keep.txt").write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            git("checkout", "--orphan", "unrelated")
+            git("rm", "-rqf", ".")
+            (root / "other.txt").write_text("unrelated\n")
+            git("add", ".")
+            git("commit", "-qm", "other")
+            head = git("rev-parse", "HEAD")
+            with self.assertRaisesRegex(ValueError, "not descended"):
+                fleet.normalize_local_commits(root, base)
+            self.assertEqual(git("rev-parse", "HEAD"), head)
+
     def test_failure_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             ev=fleet.create_failure_evidence(BASE,tmp,1,1)

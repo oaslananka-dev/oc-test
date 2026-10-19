@@ -209,7 +209,7 @@ jobs:
           from pathlib import Path
           m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
           p=(m["prompt"]+"\nAllowed paths: "+", ".join(m["allowed_paths"])
-             +"\nDo not push, merge, disclose credentials or edit workflow files."
+             +"\nDo not commit, push, merge, switch branches, disclose credentials or edit workflow files."
              +"\nRun relevant tests."
              +("\nContext7 docs tools enabled." if "context7" in m.get("integrations", []) else "")
              +("\nCodacy analyzer available." if "codacy" in m.get("integrations", []) else ""))
