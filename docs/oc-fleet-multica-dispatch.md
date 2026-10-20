@@ -90,3 +90,19 @@ If GitHub merges but the local process stops before Multica is updated, the
 next poll reconciles the already-merged PR without merging it a second time.
 No review-comment autofix, privileged branch-policy bypass, release/deployment,
 or general-purpose cross-repository automerge is enabled.
+
+
+## Bounded two-worker scheduling
+
+The trusted operator's systemd unit sets `--max-parallel 2`. Each timer tick
+selects at most two different GitHub target issue numbers; independent ephemeral
+GitHub-hosted jobs then run concurrently. The systemd flock prevents overlapping
+timer ticks on the same operator host. Each issue retains its own local claim
+and controller receipt; failed or uncertain results are never retried blindly.
+The worker pool has no special GitHub-hosted concurrency entitlement: actual
+capacity depends on the linked accounts' workflow quota and free-model limits.
+
+PR completion stays sequential and conservative. Two PRs against the same base
+are not merged while workers are still creating their patches; only after
+per-PR CI and review acceptance, and one PR per review tick. Pilot auto-merge
+remains opt-in (`fleet_auto_merge=true`) and restricted to the fixture repo.
