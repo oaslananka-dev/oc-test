@@ -184,13 +184,57 @@ entered in_review/pr_created. Neither production PR was auto-merged.
   python/src/adxl355/calibration.py and python/tests/test_calibration.py.
   Independent test results: 29/29 focused calibration and 195/195 Python
   suite, with no hardware or exploit claims.
-- Shared dependency-audit failures on both PRs were traced to the main
-  branch Node lockfile's transitive vite 8.3.0 dependency, flagged by OSV
-  GHSA-698v-4r3x-3vcv. The patched version is 8.3.3. The separate
-  [dependency issue #138](https://github.com/oaslananka/adxl355/issues/138)
-  and Multica OAS-30 track remediation. No OSV/Codacy check was bypassed.
+- Initial shared dependency-audit failures on both PRs were traced to the
+  base Node lockfile's transitive vite 8.3.0, flagged by OSV
+  GHSA-698v-4r3x-3vcv. Multica OAS-30 produced the verified patched
+  lockfile; [ADXL355 PR #139](https://github.com/oaslananka/adxl355/pull/139)
+  later merged the Vite 8.3.3 fix. Both original specialist branches were
+  updated to the patched base; PR #136 and #137 then each passed all 47
+  GitHub checks (no failures/pending), including Codacy, OSV and the
+  aggregate Dependency Audit. Both remain OPEN/CLEAN, not auto-merged.
 
 This verifies **two concurrent distinct specialist skills**, not
 automatic cross-account load balancing, private repository support, or
 higher-than-four concurrency. Production PRs remain PR-only until their
 individual checks and separate review/merge authority are satisfied.
+
+## Security dependency specialist and bounded manual recovery (OAS-30)
+
+- [ADXL355 issue #138](https://github.com/oaslananka/adxl355/issues/138)
+  described an OSV-confirmed moderate-severity transitive Vite 8.3.0
+  vulnerability in node/package-lock.json (GHSA-698v-4r3x-3vcv).
+- Multica OAS-30 selected the ci-maintenance named specialist, base
+  execution profile and free opencode/big-pickle, with a **single file**
+  allowlist for node/package-lock.json, no integrations, and no auto-merge.
+- The authentic [worker run #39478367328](https://github.com/MakerParsDev/oc-test/actions/runs/39478367328)
+  completed in one attempt (SUCCESS). Its verified evidence was named
+  fleet-39478367328-1-gh-138-17d27fea092a, with binary-free scoped patch
+  SHA-256 646551dee36daf104907675d9ff53be9df33166bb218a336a9cd9018b52a0dce.
+- The scheduled publisher correctly **refused** a stale receipt after
+  unrelated SPI PR #131 advanced target main from 2a8ad55 to 6af7281.
+  The trusted operator confirmed Git ancestry and that the two intervening
+  changes touched only the SPI adapter/test, the original and current
+  lockfile Git blobs were identical, and the exact unmodified artifact
+  patch applied cleanly with an identical resulting diff SHA-256.
+- That controlled one-off **manual recovery**, not automatic SHA-gate
+  bypass or a second model run, published [PR #139](https://github.com/oaslananka/adxl355/pull/139).
+  Independent npm ci and build passed; 81/81 Node tests passed; npm audit
+  found zero vulnerabilities. All 48 GitHub checks passed, with one
+  intentionally skipped check. OSV, Dependency Audit, Codacy, SonarQube
+  and Node 22/24/26 succeeded.
+- After separate review, exact-HEAD guarded **manual** squash-merge
+  produced 20bae0cb31d913a1701f91fe6280dcf9e329fa09, closing
+  issue #138. Multica OAS-30 was reconciled to DONE, with the
+  manually verified publication method recorded.
+- The default controller remains fail-closed on any base SHA advance.
+  [Controller issue #104](https://github.com/oaslananka-dev/oc-test/issues/104)
+  records a bounded, *opt-in* future recovery design with complete blob
+  identity and race-condition checks. No unattended auto-rebase, paid
+  fallback, secrets change, four-worker expansion or new permissions
+  were enabled.
+
+The evidence proves that **three distinct specialist profiles**
+(python-backend, embedded-firmware, security-review) completed real tasks
+and ci-maintenance completed a fourth, including safe human-governed
+recovery from an unrelated main update. The other specialist profiles
+still require individual live acceptance before claiming universal support.
