@@ -108,3 +108,31 @@ claimed for manual reconciliation, not a blind second dispatch.
 Retain the verified ceiling of four until measured GitHub-hosted runner
 capacity and free-model quota support a controlled increase. Multica
 remains the queue; no open ChatGPT session is required for polling.
+
+## Optional safe target-base advance (#104)
+
+This switch is **disabled by default**. For an already-authorized **external
+PR-only** task, the operator may set Multica boolean metadata
+`fleet_allow_safe_base_advance=true` **before** setting `fleet_ready=true`.
+It is not compatible with automatic merge, unreviewed target repositories,
+retry-failed flows or normal post-dispatch authorization changes.
+
+The original trusted dispatch receipt records the boolean decision, the
+target and worker account identities, and the external-PR-only restriction.
+On detached resume, live Multica metadata must match this original receipt
+exactly. Both attempts to enable and disable the policy after dispatch fail
+closed; old receipts without the field are interpreted as **false**.
+
+If target `main` advances, the publisher verifies the original worker's
+GitHub Actions result and exact scoped patch, checks monotonic Git ancestry,
+compares original and current Git object IDs for every approved path and
+directory, and requires the authenticated artifact patch SHA-256 to remain
+identical when applied to the new base. It rejects changed scoped objects,
+divergent/force-pushed history, unexpected actors, broad/incomplete changes,
+duplicate task branches and a branch tip that moves again before publication.
+All normal PR checks and review requirements still apply. No worker model
+call or additional GitHub permissions are required for this recovery.
+
+A successful **offline** Git-history and dispatch-policy test does not by
+itself establish a live end-to-end recovery acceptance. Existing tasks remain
+fail-closed unless expressly opted in **at dispatch**.

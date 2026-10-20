@@ -38,6 +38,35 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("MakerParsDev/oc-test",args)
         self.assertEqual(args[args.index("--multica-issue")+1],KEY)
 
+    def test_safe_base_advance_requires_external_pr_only_without_automerge(self):
+        opts={"fleet_target_repo":"oaslananka/adxl355",
+              "fleet_external_pr_only":True,
+              "fleet_auto_merge":False,
+              "fleet_allow_safe_base_advance":True}
+        meta=handoff.validate_issue(record(**opts),KEY,PID,False)
+        args=handoff.controller_command(KEY,meta,True)
+        self.assertNotIn("--allow-safe-base-advance",args)
+        for change in ({"fleet_external_pr_only":False},
+                       {"fleet_auto_merge":True},
+                       {"fleet_allow_safe_base_advance":"true"}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                handoff.validate_issue(record(**{**opts,**change}),KEY,PID,False)
+
+    def test_safe_base_policy_is_selected_at_dispatch_and_not_implicitly_enabled(self):
+        options={"fleet_target_repo":"oaslananka/adxl355",
+                 "fleet_external_pr_only":True,
+                 "fleet_auto_merge":False,
+                 "fleet_allow_safe_base_advance":True}
+        authorized=handoff.validate_issue(record(**options),KEY,PID,False)
+        argv=handoff.controller_command(KEY,authorized,True)
+        self.assertIn("--safe-base-advance-policy",argv)
+        self.assertNotIn("--allow-safe-base-advance",argv)
+        default=handoff.controller_command(KEY,record(**{
+            "fleet_external_pr_only":True, "fleet_auto_merge":False
+        })["metadata"],True)
+        self.assertNotIn("--safe-base-advance-policy",default)
+        self.assertNotIn("--allow-safe-base-advance",default)
+
     def test_run_requires_operator_ready_flag(self):
         with self.assertRaisesRegex(ValueError,"fleet_ready is false"):
             handoff.validate_issue(record(),KEY,PID,True)

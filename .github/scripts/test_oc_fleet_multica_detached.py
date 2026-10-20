@@ -104,6 +104,108 @@ class DetachedTests(unittest.TestCase):
                     with self.subTest(change=change),self.assertRaises(ValueError):
                         queue.receipt_for({**selected,**change})
 
+    def test_post_dispatch_metadata_cannot_enable_or_disable_recovery(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"receipt.json"
+            with patch.object(queue.poller, "controller_receipt", return_value=path):
+                for original, altered in ((False, True), (True, False)):
+                    with self.subTest(original=original, altered=altered):
+                        doc={**DOC,"safe_base_advance_policy":original,
+                             "target_account":"oaslananka",
+                             "worker_account":"MakerParsDev",
+                             "external_pr_only":True}
+                        path.write_text(json.dumps(doc))
+                        source={**META,"fleet_allow_safe_base_advance":original,
+                                "fleet_external_pr_only":True,
+                                "fleet_auto_merge":False}
+                        self.assertEqual(queue.receipt_for(source),doc)
+                        with self.assertRaisesRegex(ValueError,"original dispatch"):
+                            queue.receipt_for({**source,
+                                               "fleet_allow_safe_base_advance":altered})
+
+    def test_dispatch_records_policy_before_worker_starts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            path=root/"receipt.json"
+            original={**DOC,"safe_base_advance_policy":True,
+                      "target_account":"oaslananka",
+                      "worker_account":"MakerParsDev",
+                      "external_pr_only":True}
+            issue={**ISSUE,"metadata":{**META,
+                "fleet_external_pr_only":True,
+                "fleet_auto_merge":False,
+                "fleet_allow_safe_base_advance":True}}
+            seen=[]
+            def execute(argv,timeout=30):
+                seen.append(argv)
+                if "--dispatch-only" in argv:
+                    path.write_text(json.dumps(original))
+                    return json.dumps({
+                        "status":"WORKER_DISPATCHED","run_id":"12345",
+                        "worker_repo":"MakerParsDev/oc-test",
+                        "target_repo":"oaslananka-dev/oc-test",
+                        "target_issue":"81","checkout_sha":"a"*40})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=issue),patch.object(
+                queue.poller,"controller_receipt",return_value=path),patch.object(
+                queue,"execute",side_effect=execute):
+                self.assertEqual(queue.dispatch_one(issue,PID,True,root),"dispatched")
+            dispatched=[a for a in seen if "--dispatch-only" in a]
+            self.assertEqual(len(dispatched),1)
+            self.assertIn("--safe-base-advance-policy",dispatched[0])
+            self.assertNotIn("--allow-safe-base-advance",dispatched[0])
+
+    def test_original_dispatch_opt_in_is_forwarded_on_resume_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"r.json"
+            path.write_text(json.dumps({**DOC, "safe_base_advance_policy":True,
+                                        "target_account":"oaslananka",
+                                        "worker_account":"MakerParsDev",
+                                        "external_pr_only":True}))
+            meta={**PENDING,"fleet_external_pr_only":True,
+                  "fleet_auto_merge":False,
+                  "fleet_allow_safe_base_advance":True}
+            task={**ISSUE,"status":"in_progress","metadata":meta}
+            seen=[]
+            def execute(args,timeout=30):
+                seen.append(args)
+                if args[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"success"})
+                if "resume" in args:
+                    return json.dumps({"status":"PR_CREATED","run_id":"12345",
+                                       "url":"https://github.com/oaslananka-dev/oc-test/pull/93"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),patch.object(
+                    queue.poller,"controller_receipt",return_value=path),patch.object(
+                    queue,"execute",side_effect=execute):
+                self.assertEqual(queue.resume_one(task,PID,True),"published")
+            resume=[cmd for cmd in seen if "resume" in cmd]
+            self.assertEqual(len(resume),1)
+            self.assertIn("--safe-base-advance-policy",resume[0])
+            self.assertIn("--allow-safe-base-advance",resume[0])
+
+    def test_safe_base_advance_is_not_added_for_non_opt_in_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"r.json"
+            path.write_text(json.dumps(DOC))
+            task={**ISSUE,"status":"in_progress","metadata":PENDING}
+            seen=[]
+            def execute(argv,timeout=30):
+                seen.append(argv)
+                if argv[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"success"})
+                if "resume" in argv:
+                    return json.dumps({"status":"PR_CREATED","run_id":"12345",
+                                       "url":"https://github.com/oaslananka-dev/oc-test/pull/93"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),patch.object(
+                queue.poller,"controller_receipt",return_value=path),patch.object(
+                queue,"execute",side_effect=execute):
+                self.assertEqual(queue.resume_one(task,PID,True),"published")
+            commands=[x for x in seen if "resume" in x]
+            self.assertEqual(len(commands),1)
+            self.assertNotIn("--allow-safe-base-advance",commands[0])
+
     def test_double_dispatch_stays_claimed_not_reissued(self):
         with tempfile.TemporaryDirectory() as d:
             claim=Path(d)/(KEY+".claim");claim.write_text(KEY)

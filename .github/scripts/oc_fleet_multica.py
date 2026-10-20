@@ -138,6 +138,12 @@ def validate_issue(issue, key, project_id, execute):
     if target.lower() != "oaslananka-dev/oc-test" and meta.get("fleet_external_pr_only") is not True:
         raise ValueError("Non-pilot repo requires external PR-only authorization")
     selected_agent_configuration(meta)
+    safe_advance=meta.get("fleet_allow_safe_base_advance",False)
+    if type(safe_advance) is not bool:
+        raise ValueError("Safe base advance must be a boolean")
+    if safe_advance and (meta.get("fleet_external_pr_only") is not True
+                         or meta.get("fleet_auto_merge",False) is True):
+        raise ValueError("Safe base advance only supports external PR-only tasks")
     if type(meta["fleet_ready"]) is not bool:
         raise ValueError("fleet_ready must be boolean")
     if execute and not meta["fleet_ready"]:
@@ -167,6 +173,10 @@ def controller_command(key, meta, execute):
         cmd.extend(["--integration", integration])
     if meta.get("fleet_external_pr_only") is True:
         cmd.append("--external-pr-only")
+    # Record this choice at first dispatch, not as new authorization at resume.
+    if meta.get("fleet_allow_safe_base_advance") is True:
+        cmd.append("--safe-base-advance-policy")
+    # Only the resume path may append --allow-safe-base-advance, not dispatch.
     if not execute:
         cmd.append("--dry-run")
     return cmd

@@ -11,6 +11,7 @@ import re
 import subprocess
 
 import oc_fleet_multica as handoff
+import oc_fleet_issue as controller
 import oc_fleet_multica_poll as poller
 
 STATE="worker_dispatched"
@@ -64,6 +65,9 @@ def receipt_for(meta):
     doc=json.loads(path.read_text())
     manifest=doc.get("manifest")
     model, profile, tool_profile, integrations = handoff.selected_agent_configuration(meta)
+    controller.require_dispatch_policy(
+        doc,meta.get("fleet_allow_safe_base_advance",False),
+        meta.get("fleet_target_account"),meta.get("fleet_worker_account"))
     require(type(manifest) is dict
             and manifest.get("model", "opencode/big-pickle")==model
             and manifest.get("profile", "base")==profile
@@ -203,6 +207,11 @@ def resume_one(item,project,live):
         return "ready_to_publish"
     command=handoff.controller_command(key,meta,True)
     command[2]="resume"
+    if meta.get("fleet_allow_safe_base_advance") is True:
+        require(meta.get("fleet_external_pr_only") is True
+                and meta.get("fleet_auto_merge",False) is False,
+                "Safe base advance not authorized for this task")
+        command.append("--allow-safe-base-advance")
     out=execute(command,540)
     result=parse_output(out,meta,"PR_CREATED")
     match=PR_URL.fullmatch(result.get("url") or "")

@@ -331,11 +331,53 @@ def public_change_metadata(manifest, paths):
     require(re.fullmatch(r"[a-z0-9]{8,12}",task) is not None,"task suffix invalid")
     new_branch=f"change/{issue_number}-{suffix}-{task}"
     return title, body, new_branch
-def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=None):
+def safe_base_advance(work, old_sha, new_sha, paths, scopes, env):
+    """Prove a monotonic target advance left ALL worker-authorized objects alone.
+
+    Only trusted publisher code calls this; untrusted agent text never opts in.
+    Use a complete local Git comparison (not paginated API results).
+    """
+    require(bool(SHA.fullmatch(old_sha)) and bool(SHA.fullmatch(new_sha))
+            and old_sha != new_sha, "invalid target SHA advance")
+    ancestor=cmd(["git","-C",str(work),"merge-base","--is-ancestor",
+                  old_sha,new_sha],env,ok=False)
+    require(ancestor.returncode==0,"target base diverged or was rewritten")
+    changed=cmd(["git","-C",str(work),"diff","--no-renames","--name-only",
+                 "-z",old_sha,new_sha],env)
+    # cmd returns text; null-delimited output is complete and preserves whitespace.
+    changed_paths=[p for p in changed.stdout.split("\x00") if p]
+    require(0<len(changed_paths)<=200 and len(changed_paths)==len(set(changed_paths)),
+            "target base advance too broad or invalid")
+    for path in [*scopes,*paths]:
+        require(type(path) is str and path and not path.startswith("/")
+                and "\x00" not in path and ".." not in path.split("/"),
+                "unsafe approved scope")
+        identifier=path.rstrip("/")
+        def oid(sha):
+            out=cmd(["git","-C",str(work),"rev-parse","--verify",
+                     f"{sha}:{identifier}"],env,ok=False)
+            if out.returncode:
+                # Absent on both old and new base is acceptable for new files.
+                return None
+            value=out.stdout.strip()
+            require(bool(SHA.fullmatch(value)),"bad scoped Git object")
+            return value
+        require(oid(old_sha)==oid(new_sha),
+                f"target base changed approved scope: {path[:120]}")
+    return changed_paths
+
+
+def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=None,allow_safe_base_advance=False):
     def head():
         return cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
                     "--jq",".object.sha"],env).stdout.strip()
-    require(head()==m["checkout_sha"],"target base changed")
+    live_sha=head()
+    moved=live_sha!=m["checkout_sha"]
+    require(not moved or allow_safe_base_advance,
+            "target base changed")
+    if moved:
+        require(bool(SHA.fullmatch(live_sha)) and expected_account is not None,
+                "untrusted new base or actor")
     with tempfile.TemporaryDirectory(prefix="fleet-target-") as t:
         work=Path(t)/"target"
         cmd(["gh","repo","clone",repo,str(work),"--","--quiet"],env)
@@ -347,6 +389,15 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=Non
                 ==m["checkout_sha"],"target clone SHA mismatch")
         require(not cmd(["git","-C",str(work),"status","--porcelain"],env).stdout.strip(),
                 "target checkout dirty")
+        selected_sha=m["checkout_sha"]
+        if moved:
+            safe_base_advance(work,m["checkout_sha"],live_sha,
+                              evidence["paths"],m["allowed_paths"],env)
+            cmd(["git","-C",str(work),"checkout","--detach",live_sha],env)
+            cmd(["git","-C",str(work),"reset","--hard",live_sha],env)
+            require(not cmd(["git","-C",str(work),"status","--porcelain"],env).stdout.strip(),
+                    "new base checkout dirty")
+            selected_sha=live_sha
         p=Path(t)/"diff.patch";p.write_bytes(patch)
         cmd(["git","-C",str(work),"apply","--check",str(p)],env)
         cmd(["git","-C",str(work),"apply",str(p)],env)
@@ -354,7 +405,7 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=Non
         require(sorted(paths)==sorted(evidence["paths"])
                 and hashlib.sha256(clean).hexdigest()==evidence["patch_sha256"],
                 "trusted patch re-verification failed")
-        isolated_quality_gates(work,m["checkout_sha"],p,paths,
+        isolated_quality_gates(work,selected_sha,p,paths,
                                m.get("integrations",[]),repo,env,t)
         after_paths,after_patch=scoped_patch(work,m["allowed_paths"])
         require(sorted(after_paths)==sorted(paths)
@@ -363,7 +414,7 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=Non
         if readonly:
             print(json.dumps({"status":"VERIFIED_ONLY","paths":paths},ensure_ascii=False))
             return
-        require(head()==m["checkout_sha"],"target base moved before publish")
+        require(head()==selected_sha,"target base moved before publish")
         title,description,branch_name=public_change_metadata(m,paths)
         existing=cmd(["git","-C",str(work),"ls-remote","--exit-code",
                       "origin",f"refs/heads/{branch_name}"],env,ok=False)
@@ -378,9 +429,11 @@ def publish(env,repo,branch,m,evidence,patch,readonly=False,expected_account=Non
         cmd(["git","-C",str(work),"add","-A"],env)
         cmd(["git","-C",str(work),"commit","-m",title],env)
         verify_commit(work,name,email)
+        require(head()==selected_sha,"target base moved just before push")
         cmd(["git","-C",str(work),"-c","credential.helper=",
              "-c","credential.helper=!gh auth git-credential","push",
              "origin",f"HEAD:refs/heads/{branch_name}"],env)
+        require(head()==selected_sha,"target base moved during publication")
         url=cmd(["gh","pr","create","--repo",repo,"--head",branch_name,"--base",branch,
                  "--title",title,
                  "--body",description],env).stdout.strip()
@@ -392,6 +445,22 @@ def receipt(repo,issue):
     loc=Path(os.getenv("LOCALAPPDATA",str(Path.home())))/"ocfilo-fleet"
     loc.mkdir(exist_ok=True)
     return loc/(hashlib.sha256(f"{repo.lower()}#{issue}".encode()).hexdigest()[:24]+".json")
+
+def require_dispatch_policy(receipt_doc, expected, target_account=None,
+                            worker_account=None):
+    """An opted-in recovery cannot switch policy or authenticated actors."""
+    require(type(expected) is bool
+            and type(receipt_doc.get("safe_base_advance_policy", False)) is bool
+            and receipt_doc.get("safe_base_advance_policy", False) is expected,
+            "safe base advance authorization differs from original dispatch")
+    if expected:
+        require(receipt_doc.get("external_pr_only") is True
+                and type(target_account) is str and type(worker_account) is str
+                and type(receipt_doc.get("target_account")) is str
+                and type(receipt_doc.get("worker_account")) is str
+                and receipt_doc["target_account"].lower()==target_account.lower()
+                and receipt_doc["worker_account"].lower()==worker_account.lower(),
+                "safe base advance target or worker actor changed")
 
 def retry_receipt(worker_env, path, allowed,runner=RUNNER):
     if not path.exists():
@@ -439,7 +508,21 @@ def main():
                    help="Fail closed on Multica target not already in Doppler allowlist")
     a.add_argument("--external-pr-only",action="store_true",
                    help="Explicit external repo PR publication only: accept COMMIT_OR_PR_TITLE/COMMIT_MESSAGES; never auto-merge")
+    a.add_argument("--allow-safe-base-advance",action="store_true",
+                   help="Opt-in external PR-only resume when Git ancestry and all approved object IDs remain unchanged")
+    a.add_argument("--safe-base-advance-policy",action="store_true",
+                   help="Persist immutable opt-in at dispatch for subsequent resume")
     args=a.parse_args()
+    require(not args.safe_base_advance_policy or
+            (args.external_pr_only and args.require_approved_target
+             and not args.retry_failed),
+            "safe base policy needs external PR-only target authorization")
+    require(not args.allow_safe_base_advance or (args.mode=="resume"
+            and args.safe_base_advance_policy
+            and args.external_pr_only and args.require_approved_target
+            and not args.dry_run and not args.retry_failed
+            and not args.dispatch_only),
+            "safe base advance requires explicitly authorized external PR-only resume")
     require(not args.dispatch_only or (args.mode == "run" and not args.dry_run
             and not args.verify_only and not args.retry_failed),
             "Dispatch-only cannot resume, retry, preview or publish")
@@ -468,8 +551,13 @@ def main():
                  "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account,"worker_repo":runner},indent=2))
             return
         number=dispatch(worker,m,runner=runner)
-        file.write_text(json.dumps({"run_id":number,"worker_repo":runner,"manifest":m,"history":history},indent=2),
-                        encoding="utf-8")
+        file.write_text(json.dumps({
+            "run_id":number,"worker_repo":runner,"manifest":m,
+            "safe_base_advance_policy":args.safe_base_advance_policy,
+            "external_pr_only":args.external_pr_only,
+            "target_account":args.target_account,
+            "worker_account":args.worker_account,
+            "history":history},indent=2),encoding="utf-8")
         print(f"DISPATCHED: {runner} Actions run {number}; receipt {file}",flush=True)
         if args.dispatch_only:
             print(json.dumps({"status":"WORKER_DISPATCHED","run_id":str(number),
@@ -481,15 +569,26 @@ def main():
         require(file.exists(),"no receipt found for resume")
         data=json.loads(file.read_text(encoding="utf-8"))
         m=data["manifest"];number=data["run_id"]
+        require_dispatch_policy(data,args.safe_base_advance_policy,
+                                args.target_account,args.worker_account)
         require(data.get("worker_repo",RUNNER).lower()==runner.lower(),
                 "resume worker repository does not match existing receipt")
         require(m["repository"].lower()==args.repo.lower()
-                and m["issue_key"]==f"GH-{args.issue}" and m["checkout_sha"]==sha,
+                and m["issue_key"]==f"GH-{args.issue}"
+                and (m["checkout_sha"]==sha or args.allow_safe_base_advance),
                 "resume receipt stale or not for this issue")
+        if args.allow_safe_base_advance:
+            require(m["base_branch"]==branch and m["prompt"]==prompt
+                    and m["allowed_paths"]==args.path and m["model"]==args.model
+                    and m["profile"]==args.profile
+                    and m.get("tool_profile","")==args.tool_profile
+                    and m.get("integrations",[])==args.integration,
+                    "target issue or immutable worker selection changed")
     await_run(worker,number,runner=runner)
     evidence,patch=verify_artifact(worker,number,m,runner=runner)
     publish(target,args.repo,branch,m,evidence,patch,readonly=args.verify_only,
-            expected_account=args.target_account)
+            expected_account=args.target_account,
+            allow_safe_base_advance=args.allow_safe_base_advance)
 
 if __name__=="__main__":
     try: main()
