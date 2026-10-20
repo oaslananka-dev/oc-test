@@ -13,6 +13,40 @@ class Args:
     path=["playground/fleet/"]
 
 class IssueControllerTests(unittest.TestCase):
+    def test_safe_base_dispatch_receipt_policy_is_immutable(self):
+        for persisted, selected, ok in [
+            (False, False, True), (True, True, True),
+            (False, True, False), (True, False, False),
+            (None, False, True), (None, True, False),
+            ("true", True, False), (1, True, False),
+        ]:
+            data = {} if persisted is None else {
+                "safe_base_advance_policy":persisted,
+                "external_pr_only":True,
+                "target_account":"oaslananka",
+                "worker_account":"MakerParsDev"}
+            with self.subTest(persisted=persisted, selected=selected):
+                if ok:
+                    controller.require_dispatch_policy(
+                        data, selected, "oaslananka", "MakerParsDev")
+                else:
+                    with self.assertRaisesRegex(ValueError, "original dispatch"):
+                        controller.require_dispatch_policy(
+                            data, selected, "oaslananka", "MakerParsDev")
+
+    def test_safe_base_original_actor_is_immutable(self):
+        doc={"safe_base_advance_policy":True, "external_pr_only":True,
+             "target_account":"oaslananka", "worker_account":"MakerParsDev"}
+        controller.require_dispatch_policy(doc,True,"oaslananka","MakerParsDev")
+        for target,worker in (("different","MakerParsDev"),
+                              ("oaslananka","other-worker")):
+            with self.subTest(target=target,worker=worker):
+                with self.assertRaisesRegex(ValueError,"actor changed"):
+                    controller.require_dispatch_policy(doc,True,target,worker)
+        with self.assertRaisesRegex(ValueError,"actor changed"):
+            controller.require_dispatch_policy(
+                {**doc,"external_pr_only":False},True,"oaslananka","MakerParsDev")
+
     def test_default_worker_repo_preserved(self):
         repo={"full_name":controller.RUNNER,"private":False,"archived":False,
               "permissions":{"push":True}}

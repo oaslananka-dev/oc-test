@@ -11,6 +11,7 @@ import re
 import subprocess
 
 import oc_fleet_multica as handoff
+import oc_fleet_issue as controller
 import oc_fleet_multica_poll as poller
 
 STATE="worker_dispatched"
@@ -64,6 +65,9 @@ def receipt_for(meta):
     doc=json.loads(path.read_text())
     manifest=doc.get("manifest")
     model, profile, tool_profile, integrations = handoff.selected_agent_configuration(meta)
+    controller.require_dispatch_policy(
+        doc,meta.get("fleet_allow_safe_base_advance",False),
+        meta.get("fleet_target_account"),meta.get("fleet_worker_account"))
     require(type(manifest) is dict
             and manifest.get("model", "opencode/big-pickle")==model
             and manifest.get("profile", "base")==profile

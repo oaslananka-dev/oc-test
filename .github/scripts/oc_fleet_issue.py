@@ -446,6 +446,22 @@ def receipt(repo,issue):
     loc.mkdir(exist_ok=True)
     return loc/(hashlib.sha256(f"{repo.lower()}#{issue}".encode()).hexdigest()[:24]+".json")
 
+def require_dispatch_policy(receipt_doc, expected, target_account=None,
+                            worker_account=None):
+    """An opted-in recovery cannot switch policy or authenticated actors."""
+    require(type(expected) is bool
+            and type(receipt_doc.get("safe_base_advance_policy", False)) is bool
+            and receipt_doc.get("safe_base_advance_policy", False) is expected,
+            "safe base advance authorization differs from original dispatch")
+    if expected:
+        require(receipt_doc.get("external_pr_only") is True
+                and type(target_account) is str and type(worker_account) is str
+                and type(receipt_doc.get("target_account")) is str
+                and type(receipt_doc.get("worker_account")) is str
+                and receipt_doc["target_account"].lower()==target_account.lower()
+                and receipt_doc["worker_account"].lower()==worker_account.lower(),
+                "safe base advance target or worker actor changed")
+
 def retry_receipt(worker_env, path, allowed,runner=RUNNER):
     if not path.exists():
         return []
@@ -535,8 +551,13 @@ def main():
                  "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account,"worker_repo":runner},indent=2))
             return
         number=dispatch(worker,m,runner=runner)
-        file.write_text(json.dumps({"run_id":number,"worker_repo":runner,"manifest":m,"history":history},indent=2),
-                        encoding="utf-8")
+        file.write_text(json.dumps({
+            "run_id":number,"worker_repo":runner,"manifest":m,
+            "safe_base_advance_policy":args.safe_base_advance_policy,
+            "external_pr_only":args.external_pr_only,
+            "target_account":args.target_account,
+            "worker_account":args.worker_account,
+            "history":history},indent=2),encoding="utf-8")
         print(f"DISPATCHED: {runner} Actions run {number}; receipt {file}",flush=True)
         if args.dispatch_only:
             print(json.dumps({"status":"WORKER_DISPATCHED","run_id":str(number),
@@ -548,6 +569,8 @@ def main():
         require(file.exists(),"no receipt found for resume")
         data=json.loads(file.read_text(encoding="utf-8"))
         m=data["manifest"];number=data["run_id"]
+        require_dispatch_policy(data,args.safe_base_advance_policy,
+                                args.target_account,args.worker_account)
         require(data.get("worker_repo",RUNNER).lower()==runner.lower(),
                 "resume worker repository does not match existing receipt")
         require(m["repository"].lower()==args.repo.lower()

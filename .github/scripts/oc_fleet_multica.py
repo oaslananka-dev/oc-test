@@ -173,6 +173,9 @@ def controller_command(key, meta, execute):
         cmd.extend(["--integration", integration])
     if meta.get("fleet_external_pr_only") is True:
         cmd.append("--external-pr-only")
+    # Record this choice at first dispatch, not as new authorization at resume.
+    if meta.get("fleet_allow_safe_base_advance") is True:
+        cmd.append("--safe-base-advance-policy")
     # Only the resume path may append --allow-safe-base-advance, not dispatch.
     if not execute:
         cmd.append("--dry-run")
