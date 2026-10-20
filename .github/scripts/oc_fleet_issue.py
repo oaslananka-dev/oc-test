@@ -44,7 +44,7 @@ def identity(account):
     env["GH_TOKEN"]=token
     return env
 
-def repo_issue(repo,issue,env):
+def repo_issue(repo,issue,env,*,external_pr_only=False):
     require(bool(REPO.fullmatch(repo)) and type(issue)==int and issue>0,"invalid target")
     data=gh(env,f"repos/{repo}")
     require(data.get("full_name","").lower()==repo.lower(),"repo identity mismatch")
@@ -52,10 +52,16 @@ def repo_issue(repo,issue,env):
             "chosen account cannot push to target")
     require(not data.get("archived"),"repository archived")
     if data.get("allow_squash_merge"):
-        require(data.get("squash_merge_commit_title") == "PR_TITLE"
-                and data.get("squash_merge_commit_message") == "BLANK",
-                "target repository squash defaults must be PR_TITLE/BLANK; "
-                "do not copy previous author/co-author trailers into main")
+        squash_defaults = (data.get("squash_merge_commit_title"),
+                           data.get("squash_merge_commit_message"))
+        if external_pr_only:
+            require(repo.lower() != RUNNER.lower()
+                    and squash_defaults == ("COMMIT_OR_PR_TITLE", "COMMIT_MESSAGES"),
+                    "external PR-only mode requires the exact known target squash defaults")
+        else:
+            require(squash_defaults == ("PR_TITLE", "BLANK"),
+                    "target repository squash defaults must be PR_TITLE/BLANK; "
+                    "do not copy previous author/co-author trailers into main")
     require(not data.get("private"),"private target checkout requires FLEET_CHECKOUT_TOKEN; not enabled")
     branch=data.get("default_branch")
     require(isinstance(branch,str) and branch,"missing default branch")
@@ -409,11 +415,13 @@ def main():
     a.add_argument("--dry-run",action="store_true")
     a.add_argument("--retry-failed",action="store_true")
     a.add_argument("--verify-only",action="store_true")
+    a.add_argument("--external-pr-only",action="store_true",
+                   help="Explicit external repo PR publication only: accept COMMIT_OR_PR_TITLE/COMMIT_MESSAGES; never auto-merge")
     args=a.parse_args()
     worker=identity(args.worker_account)
     runner=authorized_worker_repo(worker,args.worker_repo)
     target=identity(args.target_account)
-    branch,sha,prompt=repo_issue(args.repo,args.issue,target)
+    branch,sha,prompt=repo_issue(args.repo,args.issue,target,external_pr_only=args.external_pr_only)
     file=receipt(args.repo,args.issue)
     if args.tool_profile:
         from oc_fleet_tools import from_catalog
