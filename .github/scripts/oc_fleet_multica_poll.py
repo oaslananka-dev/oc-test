@@ -8,11 +8,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
 
 import oc_fleet_multica as handoff
+import oc_fleet_multica_finalize as finalizer
 
 
 def ready_issues(project):
@@ -84,10 +86,18 @@ def poll(project, execute, claim_dir):
         run = found[0].get("run_id")
         if not isinstance(run, str) or not run.isdecimal():
             raise ValueError(f"Invalid run receipt for {key}")
+        pr_url = found[0].get("url")
+        match = (re.fullmatch(
+            r"https://github\.com/" + re.escape(meta["fleet_target_repo"]) + r"/pull/([1-9][0-9]*)",
+            pr_url or "") if isinstance(pr_url,str) else None)
+        if not match:
+            raise ValueError(f"Invalid PR URL receipt for {key}")
+        pr_number = match.group(1)
         for argv in (
             ["issue", "metadata", "set", key, "--key", "fleet_ready", "--value", "false", "--type", "bool"],
             ["issue", "metadata", "set", key, "--key", "fleet_result", "--value", "pr_created", "--type", "string"],
             ["issue", "metadata", "set", key, "--key", "fleet_run_id", "--value", run, "--type", "string"],
+            ["issue", "metadata", "set", key, "--key", "fleet_pull_request", "--value", pr_number, "--type", "string"],
             ["issue", "status", key, "in_review", "--no-start"],
         ):
             subprocess.run(["multica", *argv], capture_output=True, text=True,
@@ -105,6 +115,7 @@ def main():
     args = p.parse_args()
     if not handoff.UUID_RE.fullmatch(args.project_id):
         raise ValueError("Invalid project")
+    finalizer.poll(args.project_id, args.run, controller_receipt)
     poll(args.project_id, args.run, args.claim_dir)
 
 

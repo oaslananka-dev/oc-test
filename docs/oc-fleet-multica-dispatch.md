@@ -67,3 +67,26 @@ When GitHub PR publication succeeds, the poller marks the Multica issue
 the normal protected GitHub workflow; the poller does not merge automatically.
 If dispatch fails after creating a claim, stop and reconcile the worker
 receipt/run; do not remove claims as a routine retry strategy.
+
+## Explicit CI/review completion (pilot repository only)
+
+For test fixture issues in `oaslananka-dev/oc-test`, an authorized Multica
+issue may specify `fleet_auto_merge=true` (boolean). This never applies to
+other repositories or production releases. After controller PR publication,
+the poller saves `fleet_pull_request` alongside its trusted run receipt.
+
+A later poll completes at most one eligible `in_review` issue when:
+
+- It belongs to the pinned Multica project and has the explicit opt-in.
+- Its immutable controller receipt matches worker, run, GitHub issue and scope.
+- The exact PR changes only the single approved file and closes that issue.
+- The PR has a clean merge state, required `baseline` and Semgrep results are
+  **SUCCESS**, other checks have completed, and no review discussions remain.
+- Merge uses GitHub's protected squash-merge with exact head-SHA matching.
+- GitHub reports the PR merged, the target issue closed and the file present on
+  `main` before Multica is marked `done`.
+
+If GitHub merges but the local process stops before Multica is updated, the
+next poll reconciles the already-merged PR without merging it a second time.
+No review-comment autofix, privileged branch-policy bypass, release/deployment,
+or general-purpose cross-repository automerge is enabled.
