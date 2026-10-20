@@ -73,17 +73,17 @@ class PollTests(unittest.TestCase):
     def test_successful_dispatch_marks_for_review_and_blocks_repeat(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
-            published='{"status": "PR_CREATED", "run_id": "123", "url":"https://example.invalid"}'
+            published='{"status": "PR_CREATED", "run_id": "123", "url":"https://github.com/oaslananka-dev/oc-test/pull/1"}'
             with patch.object(poller,"ready_issues",return_value=[ISSUE]),                  patch.object(poller.handoff,"read_issue",return_value=ISSUE),                  patch.object(poller,"controller_receipt",return_value=root/"missing"),                  patch.object(poller.subprocess,"run",
                               return_value=MagicMock(returncode=0,stdout=published)) as run:
                 self.assertEqual(poller.poll(PROJECT,True,root),"dispatched")
-                self.assertEqual(run.call_count,5)
+                self.assertEqual(run.call_count,6)
                 calls=[c.args[0] for c in run.call_args_list]
                 self.assertIn("--worker-repo",calls[0])
                 self.assertIn("fleet_ready",calls[1])
                 self.assertIn("in_review",calls[-1])
                 self.assertEqual(poller.poll(PROJECT,True,root),"no_new_work")
-                self.assertEqual(run.call_count,5)
+                self.assertEqual(run.call_count,6)
 
 
 if __name__ == "__main__":
