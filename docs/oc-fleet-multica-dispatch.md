@@ -106,3 +106,27 @@ PR completion stays sequential and conservative. Two PRs against the same base
 are not merged while workers are still creating their patches; only after
 per-PR CI and review acceptance, and one PR per review tick. Pilot auto-merge
 remains opt-in (`fleet_auto_merge=true`) and restricted to the fixture repo.
+
+
+## Single-PR CI repair acceptance (opt-in, no auto-merge)
+
+The bounded pilot adds `--repair-pilot-pr2` to the existing systemd
+poller, reusing the current five-minute tick and flock. It observes only
+`oaslananka-dev/oc-test` PR #2 (`ocfilo/f1-queue-02`). The trusted F1
+observer must verify GitHub publisher IDs, current HEAD, completed required
+checks and **only** `fixture-quality` failing. Missing/pending checks, bot
+comments, other failures or unknown identity cannot authorize dispatch.
+
+The worker receives only an immutable PR head checkout plus one editable file,
+`playground/f1-smoke.txt`. It never has publishing credentials. A separate
+trusted publisher independently verifies artifact/run/provenance and exact
+fixture output before appending a new fast-forward commit to the **existing**
+PR branch. No second PR, forced updates, automatic merge or admin bypass.
+
+SQLite reserves a single writer and at most 3 attempts per PR. A verified
+failed worker run may consume another attempt. Unknown dispatch, unexpected
+artifact or interrupted publish stays reserved/dispatched for operator
+reconciliation rather than automatically retrying. Terminal success here
+means verified patch publication; **CI completion is checked independently**
+on the new SHA. This narrow F1 acceptance does not authorize repair of
+arbitrary review comments, production repositories or dependency issues.

@@ -162,12 +162,20 @@ def main():
     p.add_argument("--project-id", required=True)
     p.add_argument("--run", action="store_true")
     p.add_argument("--max-parallel", type=int, choices=(1, 2), default=1)
+    p.add_argument("--repair-pilot-pr2", action="store_true",
+                   help="Owner opt-in: repair only pinned F1 PR #2 from trusted CI evidence")
     p.add_argument("--claim-dir", type=Path, default=Path.home() / ".local/state/oc-fleet/claims")
     args = p.parse_args()
     if not handoff.UUID_RE.fullmatch(args.project_id):
         raise ValueError("Invalid project")
     finalizer.poll(args.project_id, args.run, controller_receipt)
     poll(args.project_id, args.run, args.claim_dir, args.max_parallel)
+    if args.repair_pilot_pr2:
+        import oc_fleet_pr_repair
+        oc_fleet_pr_repair.execute_once(
+            Path.home() / ".local/state/oc-fleet/f1-repairs.sqlite3",
+            dry_run=not args.run,
+        )
 
 
 if __name__ == "__main__":
