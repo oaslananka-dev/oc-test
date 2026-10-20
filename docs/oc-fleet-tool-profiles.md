@@ -81,9 +81,26 @@ mechanism**, not a new general-purpose model or arbitrary plugin installer.
 
 If these four fields are absent, existing tasks behave unchanged:
 `opencode/big-pickle`, `base`, no additional tool profile, no integration.
-The **already configured** catalog has `python-docs` and `context7-mcp`.
-Other names require an explicitly reviewed catalog entry; unknown names
-fail the controller's `--dry-run` before any GitHub worker launches.
+The live Doppler catalog (20 October 2026) contains **seven** reviewed
+profiles:
+
+| Named tool profile | Specialty |
+| --- | --- |
+| `python-docs` | Python/docs with pinned CLI and plugin |
+| `context7-mcp` | Documentation MCP integration |
+| `python-backend` | Backend correctness and tests (skill-only) |
+| `embedded-firmware` | Hardware-aware embedded C/C++ review (skill-only) |
+| `security-review` | Security analysis and negative tests (skill-only) |
+| `frontend-ux` | Frontend UX/accessibility checks (skill-only) |
+| `ci-maintenance` | CI root-cause and regression handling (skill-only) |
+
+Five new presets were validated against the original Doppler catalog without
+adding packages, credentials, model providers or paid APIs. Two controller
+`--dry-run` checks against `oaslananka/adxl355#130` succeeded using
+`python-backend` and `embedded-firmware`. This proves catalog resolution
+and safe task planning, **not** a new end-to-end model/skill execution.
+Unknown names require an explicitly reviewed catalog entry and fail a
+controller dry run before any GitHub worker launches.
 The catalog can contain task-oriented SKILL.md guidance (Python tests,
 embedded review, UI review), version-pinned CLIs, plugins, and MCP servers.
 A skill is guidance, not a second agent or a separate model provider.
