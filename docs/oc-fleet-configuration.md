@@ -107,3 +107,16 @@ dispatch, and again checks the immutable native run/artifact provenance before
 publication. One target issue keeps a single receipt across worker repositories;
 changing its worker requires explicitly reconciling the existing run first.
 Worker repositories are *not* created or enabled by adding them to Doppler.
+
+
+## External project PR-only compatibility
+
+The controller normally requires the central pilot repo's squash defaults
+`PR_TITLE/BLANK`. Active external projects may use
+`COMMIT_OR_PR_TITLE/COMMIT_MESSAGES`; operators can explicitly select
+`--external-pr-only` for a single approved public target GitHub issue.
+This verifies **those exact defaults** rather than changing repository admin
+settings or disabling other gates. It authorizes a scoped PR **only**:
+target repo CI/review, merge method, original maintainer policy and release
+controls remain external. Never infer permission for automated merges from
+this option. No free/paid model selection changes.

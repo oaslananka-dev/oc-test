@@ -214,6 +214,32 @@ class IssueControllerTests(unittest.TestCase):
             self.assertEqual(controller.repo_issue(
                 "oaslananka-dev/oc-test",12,{})[1],"a"*40)
 
+    def test_explicit_external_pr_only_preserves_repo_squash_defaults(self):
+        data={"full_name":"oaslananka/adxl355","permissions":{"push":True},
+              "default_branch":"main","private":False,"allow_squash_merge":True,
+              "squash_merge_commit_title":"COMMIT_OR_PR_TITLE",
+              "squash_merge_commit_message":"COMMIT_MESSAGES"}
+        def mock_gh(env,path):
+            if path.endswith("/issues/124"):
+                return {"number":124,"state":"open","title":"Close a leaked SPI handle",
+                        "body":"Fix and test the cleanup failure."}
+            return data
+        with patch.object(controller,"gh",side_effect=mock_gh),patch.object(
+            controller,"cmd",return_value=MagicMock(stdout="a"*40)):
+            with self.assertRaisesRegex(ValueError,"squash defaults"):
+                controller.repo_issue("oaslananka/adxl355",124,{})
+            self.assertEqual(controller.repo_issue(
+                "oaslananka/adxl355",124,{},external_pr_only=True)[1],"a"*40)
+            data["squash_merge_commit_message"]="PR_BODY"
+            with self.assertRaisesRegex(ValueError,"exact known"):
+                controller.repo_issue("oaslananka/adxl355",124,{},external_pr_only=True)
+        # The approval is never implicitly inherited by the main pilot repo.
+        data.update(full_name=controller.RUNNER,
+                    squash_merge_commit_message="COMMIT_MESSAGES")
+        with patch.object(controller,"gh",return_value=data):
+            with self.assertRaisesRegex(ValueError,"exact known"):
+                controller.repo_issue(controller.RUNNER,124,{},external_pr_only=True)
+
     def test_private_target_fails_closed(self):
         with patch.object(controller,"gh",return_value={"full_name":"oaslananka-dev/oc-test",
              "permissions":{"push":True},"private":True}):
