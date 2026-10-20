@@ -63,7 +63,12 @@ def receipt_for(meta):
             "Missing authentic local worker dispatch receipt")
     doc=json.loads(path.read_text())
     manifest=doc.get("manifest")
+    model, profile, tool_profile, integrations = handoff.selected_agent_configuration(meta)
     require(type(manifest) is dict
+            and manifest.get("model", "opencode/big-pickle")==model
+            and manifest.get("profile", "base")==profile
+            and manifest.get("tool_profile", "")==tool_profile
+            and manifest.get("integrations", [])==integrations
             and manifest.get("repository","").lower() == meta["fleet_target_repo"].lower()
             and manifest.get("issue_key")=="GH-"+meta["fleet_target_issue"]
             and manifest.get("allowed_paths")==[

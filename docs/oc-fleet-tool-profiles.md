@@ -64,3 +64,47 @@ This is an operator-controlled extension catalog, not a way for issue
 text or untrusted source files to inject commands. New third-party
 plugins, MCP servers and CLI packages execute code: review their source,
 pin versions, restrict credentials and test on a disposable task.
+
+
+## Select an expert profile from a Multica task
+
+The Multica dispatcher now forwards reviewed selections from each issue's
+metadata rather than forcing every task to `base`. This is a **selection
+mechanism**, not a new general-purpose model or arbitrary plugin installer.
+
+| Multica metadata | Example value | Meaning |
+| --- | --- | --- |
+| `fleet_model` | `opencode/nemotron-3-ultra-free` | Exact free model ID from the worker allowlist |
+| `fleet_profile` | `python-ruff` | Existing execution profile: `base`, `python-ruff`, `security-semgrep` |
+| `fleet_tool_profile` | `python-docs` | Named, operator-reviewed Doppler `FLEET_TOOL_PROFILES` entry |
+| `fleet_integrations` | `'["context7","codacy"]'` | JSON-encoded allowlisted integration names |
+
+If these four fields are absent, existing tasks behave unchanged:
+`opencode/big-pickle`, `base`, no additional tool profile, no integration.
+The **already configured** catalog has `python-docs` and `context7-mcp`.
+Other names require an explicitly reviewed catalog entry; unknown names
+fail the controller's `--dry-run` before any GitHub worker launches.
+The catalog can contain task-oriented SKILL.md guidance (Python tests,
+embedded review, UI review), version-pinned CLIs, plugins, and MCP servers.
+A skill is guidance, not a second agent or a separate model provider.
+
+Multica CLI stores arrays as strings. For example:
+
+```bash
+multica issue metadata set OAS-XX --key fleet_model --value opencode/big-pickle --type string
+multica issue metadata set OAS-XX --key fleet_profile --value python-ruff --type string
+multica issue metadata set OAS-XX --key fleet_tool_profile --value python-docs --type string
+multica issue metadata set OAS-XX --key fleet_integrations --value '["context7"]' --type string
+```
+
+Substitute an existing, unready task identifier for `OAS-XX`, then run
+`oc_fleet_multica.py --mode plan` for a verified dry run before setting
+`fleet_ready=true`. Never change routing/profile selections during an
+in-progress worker: detached reconciliation checks the original durable
+manifest against every selected profile field and refuses changed input.
+A non-pilot repository still requires `fleet_external_pr_only=true`
+and cannot request auto-merge. The systemd limit remains four workers.
+
+The worker only accepts explicitly listed free-model IDs. An unavailable
+free model fails the worker: it does not fall back to any paid model, start
+another worker, or create a PR from failed evidence.

@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 
-from oc_fleet_contract import clean_relpath
+from oc_fleet_contract import clean_relpath, MODELS, PROFILES
 
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
 UUID_RE = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\Z")
@@ -59,6 +59,44 @@ def extra_allowed_paths(meta):
     return extra
 
 
+TOOL_PROFILE_RE = re.compile(r"[a-z][a-z0-9-]{0,47}\Z")
+INTEGRATIONS = frozenset({"context7", "codacy", "sonarqube"})
+
+
+def selected_agent_configuration(meta):
+    """Explicit, bounded per-task choices; no arbitrary model or shell args."""
+    model = meta.get("fleet_model", "opencode/big-pickle")
+    profile = meta.get("fleet_profile", "base")
+    tool_profile = meta.get("fleet_tool_profile", "")
+    if type(model) is not str or model not in MODELS:
+        raise ValueError("Unapproved fleet model")
+    if type(profile) is not str or profile not in PROFILES:
+        raise ValueError("Unapproved fleet execution profile")
+    if type(tool_profile) is not str or (
+        tool_profile and not TOOL_PROFILE_RE.fullmatch(tool_profile)
+    ):
+        raise ValueError("Invalid fleet tool profile name")
+
+    # Multica V1 stores arrays as primitive strings. Never parse comma
+    # strings or coerce scalars into a broader integration authorization.
+    integrations = meta.get("fleet_integrations", [])
+    if type(integrations) is str:
+        if len(integrations) > 256:
+            raise ValueError("Invalid fleet integrations")
+        try:
+            integrations = json.loads(integrations)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Invalid fleet integrations") from exc
+    if (
+        type(integrations) is not list
+        or len(integrations) > 3
+        or any(type(i) is not str or i not in INTEGRATIONS for i in integrations)
+        or len(set(integrations)) != len(integrations)
+    ):
+        raise ValueError("Invalid fleet integrations")
+    return model, profile, tool_profile, integrations
+
+
 def validate_issue(issue, key, project_id, execute):
     if issue.get("identifier") != key or issue.get("project_id") != project_id:
         raise ValueError("issue identity/project mismatch")
@@ -99,6 +137,7 @@ def validate_issue(issue, key, project_id, execute):
         raise ValueError("External PR-only switch must be boolean")
     if target.lower() != "oaslananka-dev/oc-test" and meta.get("fleet_external_pr_only") is not True:
         raise ValueError("Non-pilot repo requires external PR-only authorization")
+    selected_agent_configuration(meta)
     if type(meta["fleet_ready"]) is not bool:
         raise ValueError("fleet_ready must be boolean")
     if execute and not meta["fleet_ready"]:
@@ -107,6 +146,7 @@ def validate_issue(issue, key, project_id, execute):
 
 
 def controller_command(key, meta, execute):
+    model, profile, tool_profile, integrations = selected_agent_configuration(meta)
     cmd = [
         sys.executable, str(Path(__file__).with_name("oc_fleet_issue.py")), "run",
         "--repo", meta["fleet_target_repo"],
@@ -114,13 +154,17 @@ def controller_command(key, meta, execute):
         "--worker-account", meta["fleet_worker_account"],
         "--worker-repo", meta["fleet_worker_repo"],
         "--target-account", meta["fleet_target_account"],
-        "--model", "opencode/big-pickle",
-        "--profile", "base",
+        "--model", model,
+        "--profile", profile,
         "--multica-issue", key,
         "--require-approved-target",
     ]
     for scope in [meta["fleet_allowed_path"], *extra_allowed_paths(meta)]:
         cmd.extend(["--path",scope])
+    if tool_profile:
+        cmd.extend(["--tool-profile", tool_profile])
+    for integration in integrations:
+        cmd.extend(["--integration", integration])
     if meta.get("fleet_external_pr_only") is True:
         cmd.append("--external-pr-only")
     if not execute:

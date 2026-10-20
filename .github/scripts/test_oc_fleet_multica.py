@@ -138,6 +138,75 @@ class HandoffTests(unittest.TestCase):
                     fleet_allowed_path="python/tests/test_spidev_adapter.py",
                     fleet_allowed_paths=value),KEY,PID,False)
 
+    def test_task_selects_approved_model_profile_tools_and_integrations(self):
+        meta=handoff.validate_issue(record(
+            fleet_model="opencode/nemotron-3-ultra-free",
+            fleet_profile="python-ruff",
+            fleet_tool_profile="python-docs",
+            fleet_integrations='["context7","codacy"]',
+            fleet_ready=True,
+        ),KEY,PID,True)
+        command=handoff.controller_command(KEY,meta,True)
+        def value(flag):
+            return command[command.index(flag)+1]
+        self.assertEqual(value("--model"),"opencode/nemotron-3-ultra-free")
+        self.assertEqual(value("--profile"),"python-ruff")
+        self.assertEqual(value("--tool-profile"),"python-docs")
+        self.assertEqual([command[i+1] for i,v in enumerate(command)
+                          if v=="--integration"],["context7","codacy"])
+        self.assertNotIn("--dry-run",command)
+        self.assertEqual(meta["fleet_integrations"],'["context7","codacy"]')
+
+    def test_default_task_profiles_are_backward_compatible(self):
+        meta=handoff.validate_issue(record(fleet_ready=True),KEY,PID,True)
+        args=handoff.controller_command(KEY,meta,True)
+        self.assertEqual(args[args.index("--model")+1],"opencode/big-pickle")
+        self.assertEqual(args[args.index("--profile")+1],"base")
+        self.assertNotIn("--tool-profile",args)
+        self.assertNotIn("--integration",args)
+
+    def test_task_rejects_paid_unknown_or_unbounded_profiles(self):
+        variants=[
+            {"fleet_model":"openai/gpt-5"},
+            {"fleet_model":"opencode/big-pickle-plus"},
+            {"fleet_model":7},
+            {"fleet_profile":"admin"},
+            {"fleet_profile":"base;evil"},
+            {"fleet_tool_profile":"../../injection"},
+            {"fleet_tool_profile":"python-docs --model paid"},
+            {"fleet_tool_profile":4},
+            {"fleet_integrations":"codacy,context7"},
+            {"fleet_integrations":'["codacy","codacy"]'},
+            {"fleet_integrations":'["arbitrary-tool"]'},
+            {"fleet_integrations":'["codacy",1]'},
+            {"fleet_integrations":'{"codacy":true}'},
+            {"fleet_integrations":'"codacy"'},
+            {"fleet_integrations":"null"},
+            {"fleet_integrations":"[]junk"},
+            {"fleet_integrations":"["*300},
+            {"fleet_integrations":["codacy","codacy"]},
+        ]
+        for fields in variants:
+            with self.subTest(fields=fields),self.assertRaises(ValueError):
+                handoff.validate_issue(record(**fields),KEY,PID,False)
+
+    def test_integrations_allow_only_known_identifiers_for_external_pr(self):
+        meta=handoff.validate_issue(record(
+            fleet_target_repo="oaslananka/adxl355",
+            fleet_external_pr_only=True,
+            fleet_auto_merge=False,
+            fleet_model="opencode/ling-3.1-flash-free",
+            fleet_profile="security-semgrep",
+            fleet_tool_profile="context7-mcp",
+            fleet_integrations=["sonarqube"],
+        ),KEY,PID,False)
+        args=handoff.controller_command(KEY,meta,False)
+        self.assertIn("--external-pr-only",args)
+        self.assertEqual(args[args.index("--model")+1],
+                         "opencode/ling-3.1-flash-free")
+        self.assertEqual(args[args.index("--tool-profile")+1],"context7-mcp")
+        self.assertEqual(args[args.index("--integration")+1],"sonarqube")
+
     def test_read_issue_uses_exact_json_api(self):
         class Reply:
             stdout='{"identifier":"OAS-14"}'

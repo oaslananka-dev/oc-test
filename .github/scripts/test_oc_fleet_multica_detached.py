@@ -78,6 +78,32 @@ class DetachedTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     queue.receipt_for(malformed)
 
+    def test_profile_selections_bound_to_immutable_worker_receipt(self):
+        selected={**META,
+                  "fleet_model":"opencode/nemotron-3-ultra-free",
+                  "fleet_profile":"python-ruff",
+                  "fleet_tool_profile":"python-docs",
+                  "fleet_integrations":'["context7"]'}
+        manifest={**DOC["manifest"],
+                  "model":"opencode/nemotron-3-ultra-free",
+                  "profile":"python-ruff",
+                  "tool_profile":"python-docs",
+                  "integrations":["context7"]}
+        document={**DOC,"manifest":manifest}
+        with tempfile.TemporaryDirectory() as directory:
+            receipt=Path(directory)/"receipt.json"
+            receipt.write_text(json.dumps(document))
+            with patch.object(queue.poller,"controller_receipt",return_value=receipt):
+                self.assertEqual(queue.receipt_for(selected),document)
+                for change in (
+                    {"fleet_model":"opencode/big-pickle"},
+                    {"fleet_profile":"security-semgrep"},
+                    {"fleet_tool_profile":"context7-mcp"},
+                    {"fleet_integrations":'["codacy"]'},
+                ):
+                    with self.subTest(change=change),self.assertRaises(ValueError):
+                        queue.receipt_for({**selected,**change})
+
     def test_double_dispatch_stays_claimed_not_reissued(self):
         with tempfile.TemporaryDirectory() as d:
             claim=Path(d)/(KEY+".claim");claim.write_text(KEY)
