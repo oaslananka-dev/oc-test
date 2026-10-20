@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "scenario": "scale4-20261020-beta",
+  "source_repository": "oaslananka-dev/oc-test",
+  "expected_outcome": "SUCCEEDED"
+}
