@@ -52,7 +52,39 @@ The timer enables live execution only with the explicit
 --auto-codacy-bare-assert flag. It never changes branch protection or
 merges PRs. A second category requires a separate proven rule and tests.
 
-Acceptance status: the underlying scoped worker/publisher completed a
-real production PR repair with successful fresh CI. This exact automatic
-selector has mocked regression tests and live read-only observation only;
-it is not yet proven to have autonomously selected a second live PR.
+## Live autonomous production acceptance — 20 October 2026
+
+ADXL355 PR #129 added a useful hardware-free test verifying that
+closing an unopened Linux SPI transport does not allocate a hardware
+device. The initial commit was
+cf859e82ede8a4a0c640e4393321ce63a1118eaf. The only unsuccessful
+CI check was Codacy Static Code Analysis, conclusion action_required,
+run ID 118665202259, App ID 56611, with exactly one approved bare-assert
+finding on newly added line 114 of python/tests/test_spidev_adapter.py.
+
+The 16:50 systemd timer did not dispatch while other checks were
+pending. With all other checks green, the 16:55 timer automatically
+selected and verified PR #129 and dispatched the free-model worker:
+https://github.com/MakerParsDev/oc-test/actions/runs/39434643165
+The worker completed successfully. The trusted publisher verified the
+artifact and fast-forwarded the existing PR branch to
+e311ed5e2b95260123225a6314ecec1a4aa36843, with the exact original
+SHA as the sole parent. The patch replaced just one newly introduced
+bare assert with self.assertEqual(factory.call_count, 0). No force-push,
+replacement PR or auto-merge occurred.
+
+At 17:00, the timer correctly deferred CI reconciliation while fresh
+checks were still pending. The new HEAD then received 47 successful
+and 1 neutral checks, with no failures or pending jobs. At 17:05,
+the systemd timer autonomously verified the new checks and updated
+the durable receipt from PUBLISHED to CI_SUCCEEDED. Only one worker
+run was used, without retries. After independent review, the useful
+test PR #129 was deliberately squash-merged by the operator:
+https://github.com/oaslananka/adxl355/pull/129
+Merge commit: 2a8ad55de259688e77ff73d24a5ec204a598cd4b.
+
+**Acceptance: PASS** for this one precise Codacy test-file rule.
+This does not authorize other lint rules, arbitrary failing CI jobs,
+untrusted review comments, dependencies or merge conflicts. The
+2-worker limit, SHA binding, immutable artifact verification, duplicate
+receipt handling and no-auto-merge policy remain active.
