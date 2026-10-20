@@ -130,6 +130,7 @@ class SelectionTests(unittest.TestCase):
         with patch.object(discover.github,"gh",side_effect=[
             {"commit":{"sha":SHA}},
             {"total_count":2,"workflow_runs":runs},
+            {"commit":{"sha":SHA}},
         ]):
             result=discover.last_main_audit({})
         self.assertEqual(result["state"],"MAIN_AUDIT_PENDING")
@@ -144,10 +145,46 @@ class SelectionTests(unittest.TestCase):
                     {"total_count":1,"workflow_runs":[{
                         "head_sha":SHA,"event":"push","status":"completed",
                         "conclusion":conclusion,"id":500}]},
+                    {"commit":{"sha":SHA}},
                 ]):
                 found=discover.last_main_audit({})
                 self.assertEqual(found["state"],state)
                 self.assertNotIn("advisory_id",found)
+
+    def test_main_head_changed_during_read_cannot_be_reported_green(self):
+        with patch.object(discover.github,"gh",side_effect=[
+            {"commit":{"sha":SHA}},
+            {"total_count":1,"workflow_runs":[{
+                "head_sha":SHA,"event":"push","status":"completed",
+                "conclusion":"success","id":500}]},
+            {"commit":{"sha":"b"*40}},
+        ]):
+            observed=discover.last_main_audit({})
+        self.assertEqual(observed["state"],"MAIN_HEAD_MOVED")
+        self.assertEqual(observed["old_sha"],SHA)
+        self.assertEqual(observed["main_sha"],"b"*40)
+
+    def test_full_history_page_without_sha_match_is_not_a_green_or_empty_assertion(self):
+        history=[{"head_sha":"b"*40,"event":"push","status":"completed",
+                  "conclusion":"success","id":500-i} for i in range(10)]
+        with patch.object(discover.github,"gh",side_effect=[
+            {"commit":{"sha":SHA}},
+            {"total_count":50,"workflow_runs":history},
+            {"commit":{"sha":SHA}},
+        ]):
+            observed=discover.last_main_audit({})
+        self.assertEqual(observed["state"],"MAIN_AUDIT_HISTORY_INCOMPLETE")
+        self.assertNotIn("workflow_run_id",observed)
+
+    def test_no_current_sha_workflow_when_inventory_is_complete(self):
+        with patch.object(discover.github,"gh",side_effect=[
+            {"commit":{"sha":SHA}},
+            {"total_count":1,"workflow_runs":[{
+                "head_sha":"b"*40,"event":"push","id":400}]},
+            {"commit":{"sha":SHA}},
+        ]):
+            observed=discover.last_main_audit({})
+        self.assertEqual(observed["state"],"NO_CURRENT_MAIN_AUDIT")
 
     def test_no_pr_and_live_green_is_read_only(self):
         with patch.object(discover,"list_open",return_value=[]),patch.object(

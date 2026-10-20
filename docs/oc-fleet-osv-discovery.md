@@ -27,6 +27,13 @@ run yields MAIN_AUDIT_FAILED_REVIEW, which is **not** authorization to
 create a PR. A pending run is never overridden by an older successful run.
 Stale historical audit failures are not revived.
 
+The main SHA is re-read **after** fetching workflow evidence. If the branch
+moves during inspection, the observer returns MAIN_HEAD_MOVED rather than
+declaring the old commit green. If GitHub supplies a full page of ten runs
+without the current SHA, the observer returns MAIN_AUDIT_HISTORY_INCOMPLETE
+rather than treating truncated history as proof that no audit exists.
+These states are not eligible for any publication action.
+
 ## Usage
 
 Read-only terminal result:
