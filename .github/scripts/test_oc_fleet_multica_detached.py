@@ -63,6 +63,21 @@ class DetachedTests(unittest.TestCase):
                 self.assertEqual(sum("fleet_ready" in c for c in cmds),1)
                 self.assertIn("in_progress",cmds[-1])
 
+    def test_encoded_extra_path_receipt_is_verified_before_resume(self):
+        extra="python/src/adxl355/adapters/spidev.py"
+        metadata={**META,
+                  "fleet_allowed_paths":json.dumps([extra])}
+        doc={**DOC, "manifest":{**DOC["manifest"],
+                                "allowed_paths":[META["fleet_allowed_path"],extra]}}
+        with tempfile.TemporaryDirectory() as d:
+            receipt=Path(d)/"worker.json"
+            receipt.write_text(json.dumps(doc))
+            with patch.object(queue.poller,"controller_receipt",return_value=receipt):
+                self.assertEqual(queue.receipt_for(metadata),doc)
+                malformed={**metadata,"fleet_allowed_paths":'[".github/config.yml"]'}
+                with self.assertRaises(ValueError):
+                    queue.receipt_for(malformed)
+
     def test_double_dispatch_stays_claimed_not_reissued(self):
         with tempfile.TemporaryDirectory() as d:
             claim=Path(d)/(KEY+".claim");claim.write_text(KEY)

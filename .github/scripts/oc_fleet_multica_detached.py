@@ -67,7 +67,7 @@ def receipt_for(meta):
             and manifest.get("repository","").lower() == meta["fleet_target_repo"].lower()
             and manifest.get("issue_key")=="GH-"+meta["fleet_target_issue"]
             and manifest.get("allowed_paths")==[
-                meta["fleet_allowed_path"],*meta.get("fleet_allowed_paths",[])]
+                meta["fleet_allowed_path"],*handoff.extra_allowed_paths(meta)]
             and manifest.get("multica_issue") is not None
             and doc.get("worker_repo","").lower()==meta["fleet_worker_repo"].lower()
             and type(doc.get("run_id")) is int and doc["run_id"] > 0,

@@ -95,6 +95,49 @@ class HandoffTests(unittest.TestCase):
             with self.subTest(updates=updates),self.assertRaises(ValueError):
                 handoff.validate_issue(record(**updates),KEY,PID,False)
 
+    def test_multica_primitive_string_roundtrips_as_two_exact_scopes(self):
+        stored='["python/src/adxl355/adapters/spidev.py"]'
+        issue=record(
+            fleet_target_repo="oaslananka/adxl355",
+            fleet_target_issue="130",
+            fleet_allowed_path="python/tests/test_spidev_adapter.py",
+            fleet_allowed_paths=stored,
+            fleet_external_pr_only=True,
+            fleet_auto_merge=False,
+            fleet_ready=True,
+        )
+        meta=handoff.validate_issue(issue,KEY,PID,True)
+        command=handoff.controller_command(KEY,meta,True)
+        paths=[command[i+1] for i,x in enumerate(command) if x=="--path"]
+        self.assertEqual(paths,[
+            "python/tests/test_spidev_adapter.py",
+            "python/src/adxl355/adapters/spidev.py"])
+        self.assertIn("--external-pr-only",command)
+        self.assertNotIn("--dry-run",command)
+        # The Multica source remains scalar and is not silently rewritten.
+        self.assertEqual(meta["fleet_allowed_paths"],stored)
+
+    def test_encoded_extra_scopes_fail_closed(self):
+        cases=[
+            "not JSON",
+            '"python/src/adxl355/adapters/spidev.py"',
+            'null',
+            'true',
+            '{}',
+            '[".github/workflows/ci.yml"]',
+            '["python/../sensitive"]',
+            '["python/tests/test_spidev_adapter.py"]',
+            '["python/tests/","python/tests/test_spidev_adapter.py"]',
+            '["python/src/adxl355/adapters/spidev.py",1]',
+            '["python/src/adxl355/adapters/spidev.py",]',
+            '["python/src/adxl355/adapters/spidev.py"]' * 300,
+        ]
+        for value in cases:
+            with self.subTest(value=value[:50]),self.assertRaises(ValueError):
+                handoff.validate_issue(record(
+                    fleet_allowed_path="python/tests/test_spidev_adapter.py",
+                    fleet_allowed_paths=value),KEY,PID,False)
+
     def test_read_issue_uses_exact_json_api(self):
         class Reply:
             stdout='{"identifier":"OAS-14"}'
