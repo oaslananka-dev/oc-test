@@ -175,7 +175,7 @@ def discover_existing(target):
 
 
 def last_main_audit(target):
-    """Classify the latest main audit only; never revive stale historical runs."""
+    """Inspect current main, failing closed on races and truncated history."""
     main=github.gh(target,f"repos/{REPO}/branches/main")
     sha=(main.get("commit") or {}).get("sha")
     require(type(sha) is str and publisher.SHA.fullmatch(sha),
@@ -184,23 +184,38 @@ def last_main_audit(target):
         f"repos/{REPO}/actions/workflows/dependency-audit.yml/runs?branch=main&per_page=10")
     require(type(runs) is dict and type(runs.get("total_count")) is int
             and type(runs.get("workflow_runs")) is list
-            and len(runs["workflow_runs"]) <= 10, "Invalid workflow listing")
+            and len(runs["workflow_runs"]) <= 10
+            and runs["total_count"] >= len(runs["workflow_runs"]),
+            "Invalid workflow listing")
     latest=next((r for r in runs["workflow_runs"]
                  if r.get("head_sha") == sha and r.get("event") in ("push","schedule")),None)
     if latest is None:
-        return {"state":"NO_CURRENT_MAIN_AUDIT","main_sha":sha}
-    if latest.get("status") != "completed":
-        return {"state":"MAIN_AUDIT_PENDING","main_sha":sha,
-                "workflow_run_id":latest["id"]}
-    if latest.get("conclusion") == "success":
-        return {"state":"MAIN_AUDIT_GREEN","main_sha":sha,
-                "workflow_run_id":latest["id"]}
-    if latest.get("conclusion") == "failure":
-        return {"state":"MAIN_AUDIT_FAILED_REVIEW","main_sha":sha,
-                "workflow_run_id":latest["id"],
-                "note":"Inspect genuine OSV artifact; never open a PR from aggregate status alone"}
-    return {"state":"MAIN_AUDIT_INCONCLUSIVE","main_sha":sha,
-            "workflow_run_id":latest["id"]}
+        # A full page does not establish that no current-SHA run exists.
+        # Never turn truncated history into an authoritative 'no audit' answer.
+        state=("MAIN_AUDIT_HISTORY_INCOMPLETE"
+               if len(runs["workflow_runs"]) == 10
+               else "NO_CURRENT_MAIN_AUDIT")
+        outcome={"state":state,"main_sha":sha}
+    elif latest.get("status") != "completed":
+        outcome={"state":"MAIN_AUDIT_PENDING","main_sha":sha,
+                 "workflow_run_id":latest["id"]}
+    elif latest.get("conclusion") == "success":
+        outcome={"state":"MAIN_AUDIT_GREEN","main_sha":sha,
+                 "workflow_run_id":latest["id"]}
+    elif latest.get("conclusion") == "failure":
+        outcome={"state":"MAIN_AUDIT_FAILED_REVIEW","main_sha":sha,
+                 "workflow_run_id":latest["id"],
+                 "note":"Inspect genuine OSV artifact; never open a PR from aggregate status alone"}
+    else:
+        outcome={"state":"MAIN_AUDIT_INCONCLUSIVE","main_sha":sha,
+                 "workflow_run_id":latest["id"]}
+    fresh=github.gh(target,f"repos/{REPO}/branches/main")
+    fresh_sha=(fresh.get("commit") or {}).get("sha")
+    require(type(fresh_sha) is str and publisher.SHA.fullmatch(fresh_sha),
+            "Cannot revalidate current main SHA")
+    if fresh_sha != sha:
+        return {"state":"MAIN_HEAD_MOVED","old_sha":sha,"main_sha":fresh_sha}
+    return outcome
 
 
 def observe(target):
