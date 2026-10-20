@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline tests for bounded, idempotent Multica task polling."""
 import tempfile
+from threading import Barrier, Lock
 from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, patch
@@ -84,6 +85,64 @@ class PollTests(unittest.TestCase):
                 self.assertIn("in_review",calls[-1])
                 self.assertEqual(poller.poll(PROJECT,True,root),"no_new_work")
                 self.assertEqual(run.call_count,6)
+
+
+    def test_two_controllers_actually_overlap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            other={**ISSUE, "identifier":"OAS-17",
+                   "metadata":{**META,"fleet_target_issue":"61"}}
+            issues=[ISSUE,other]
+            barrier=Barrier(2,timeout=3)
+            starts=[]
+            lock=Lock()
+            def simultaneous(item, project, execute, claims):
+                with lock:
+                    starts.append(item["identifier"])
+                barrier.wait()
+                return "dispatched"
+            with patch.object(poller,"ready_issues",return_value=issues), \
+                 patch.object(poller.handoff,"read_issue",side_effect=lambda k: next(x for x in issues if x["identifier"]==k)), \
+                 patch.object(poller,"controller_receipt",side_effect=lambda m:root/(m["fleet_target_issue"]+".json")), \
+                 patch.object(poller,"dispatch_one",side_effect=simultaneous):
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=2),"dispatched_parallel")
+                self.assertCountEqual(starts,["OAS-14","OAS-17"])
+
+    def test_same_target_is_never_dispatched_twice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            other={**ISSUE,"identifier":"OAS-17"}
+            issues=[ISSUE,other]
+            with patch.object(poller,"ready_issues",return_value=issues), \
+                 patch.object(poller.handoff,"read_issue",side_effect=lambda k: next(x for x in issues if x["identifier"]==k)), \
+                 patch.object(poller,"controller_receipt",return_value=root/"none"), \
+                 patch.object(poller,"dispatch_one",return_value="dispatched") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=2),"dispatched")
+                dispatch.assert_called_once()
+
+    def test_parallel_failure_waits_for_peer_and_reports_reconciliation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            other={**ISSUE,"identifier":"OAS-17","metadata":{**META,"fleet_target_issue":"61"}}
+            issues=[ISSUE,other]
+            processed=[]
+            def handle(item,*_):
+                processed.append(item["identifier"])
+                if item["identifier"]=="OAS-14":
+                    raise ValueError("failed with claim preserved")
+                return "dispatched"
+            with patch.object(poller,"ready_issues",return_value=issues), \
+                 patch.object(poller.handoff,"read_issue",side_effect=lambda k: next(x for x in issues if x["identifier"]==k)), \
+                 patch.object(poller,"controller_receipt",side_effect=lambda m:root/(m["fleet_target_issue"]+".json")), \
+                 patch.object(poller,"dispatch_one",side_effect=handle):
+                with self.assertRaisesRegex(ValueError,"OAS-14"):
+                    poller.poll(PROJECT,True,root,max_parallel=2)
+                self.assertCountEqual(processed,["OAS-14","OAS-17"])
+
+    def test_parallel_capacity_rejects_more_than_two(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError,"one or two"):
+                poller.poll(PROJECT,True,Path(temp),max_parallel=3)
 
 
 if __name__ == "__main__":
