@@ -432,12 +432,17 @@ def main():
     a.add_argument("--target-account",default="oaslananka")
     a.add_argument("--dry-run",action="store_true")
     a.add_argument("--retry-failed",action="store_true")
+    a.add_argument("--dispatch-only",action="store_true",
+                   help="Persist verified run ID and return without waiting for worker")
     a.add_argument("--verify-only",action="store_true")
     a.add_argument("--require-approved-target",action="store_true",
                    help="Fail closed on Multica target not already in Doppler allowlist")
     a.add_argument("--external-pr-only",action="store_true",
                    help="Explicit external repo PR publication only: accept COMMIT_OR_PR_TITLE/COMMIT_MESSAGES; never auto-merge")
     args=a.parse_args()
+    require(not args.dispatch_only or (args.mode == "run" and not args.dry_run
+            and not args.verify_only and not args.retry_failed),
+            "Dispatch-only cannot resume, retry, preview or publish")
     worker=identity(args.worker_account)
     runner=authorized_worker_repo(worker,args.worker_repo)
     target=identity(args.target_account)
@@ -466,6 +471,12 @@ def main():
         file.write_text(json.dumps({"run_id":number,"worker_repo":runner,"manifest":m,"history":history},indent=2),
                         encoding="utf-8")
         print(f"DISPATCHED: {runner} Actions run {number}; receipt {file}",flush=True)
+        if args.dispatch_only:
+            print(json.dumps({"status":"WORKER_DISPATCHED","run_id":str(number),
+                              "worker_repo":runner,"target_repo":args.repo,
+                              "target_issue":str(args.issue),"checkout_sha":sha},
+                             sort_keys=True),flush=True)
+            return
     else:
         require(file.exists(),"no receipt found for resume")
         data=json.loads(file.read_text(encoding="utf-8"))
