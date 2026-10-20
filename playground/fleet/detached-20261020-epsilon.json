@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "scenario": "detached-20261020-epsilon",
+  "source_repository": "oaslananka-dev/oc-test",
+  "expected_outcome": "SUCCEEDED"
+}
