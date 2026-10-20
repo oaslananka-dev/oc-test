@@ -125,3 +125,35 @@ and cannot request auto-merge. The systemd limit remains four workers.
 The worker only accepts explicitly listed free-model IDs. An unavailable
 free model fails the worker: it does not fall back to any paid model, start
 another worker, or create a PR from failed evidence.
+
+## Live named-skill acceptance: ADXL355 OAS-27 (20 October 2026)
+
+The first **real** GitHub-hosted worker using the newly configured
+python-backend specialist completed successfully, not merely a dry run.
+
+- [GitHub issue #132](https://github.com/oaslananka/adxl355/issues/132)
+  constrained the task to a smbus2 adapter fix and a new fake-bus test file.
+- Multica OAS-27 selected free model opencode/big-pickle, execution profile
+  python-ruff, specialist python-backend, and no paid integrations.
+- [GitHub worker run #39473156707](https://github.com/MakerParsDev/oc-test/actions/runs/39473156707)
+  finished SUCCESS in one attempt. Task contract, named tool-profile setup,
+  actual OpenCode execution, scoped evidence creation and artifact upload
+  all completed successfully. Original artifact:
+  fleet-39473156707-1-gh-132-62d84e6dbd13.
+- The scheduled detached controller reconciled the immutable artifact and
+  opened [ADXL355 PR #133](https://github.com/oaslananka/adxl355/pull/133)
+  with exactly python/src/adxl355/adapters/smbus2.py and
+  python/tests/test_smbus2_adapter.py. The original SPI PR #131 remained
+  untouched. OAS-27 moved to in_review / pr_created.
+- The original PR head 34af62394cef4954fcc083810a03969d5e608046
+  independently passed 194/194 Python tests and 16/16 focused I2C/transport
+  tests. Python 3.10, 3.11 and 3.12 CI checks passed. Codacy reported zero
+  new issues. Consult the live PR before claiming other CI is green.
+- **External PR-only stays enforced:** neither PR #133 nor issue #132 was
+  automatically merged/closed. No new worker account, paid provider, checkout
+  privilege, CI bypass or additional capacity was needed.
+
+This proves real named-profile selection **and** GitHub-hosted agent execution
+for python-backend. It does not independently certify every specialist
+profile, concurrency above four, private repository checkout or automatic
+cross-account routing.
