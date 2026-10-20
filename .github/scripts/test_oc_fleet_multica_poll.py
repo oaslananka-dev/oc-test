@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import oc_fleet_multica_poll as poller
+REAL_WORKER_SLOTS=poller.worker_slots
 
 PROJECT = "0506e0e5-01a7-4de9-b63b-67e993809721"
 META = {
@@ -23,6 +24,13 @@ ISSUE = {"identifier":"OAS-14", "status":"todo", "project_id":PROJECT,
 
 
 class PollTests(unittest.TestCase):
+    def setUp(self):
+        # Legacy tests exercise dispatch, not external GitHub Actions admission.
+        self.capacity=patch.object(poller,"worker_slots",
+                                   side_effect=lambda repo,budget:budget)
+        self.capacity.start()
+        self.addCleanup(self.capacity.stop)
+
     def test_project_scoped_filtered_list(self):
         with patch.object(poller.subprocess,"run",
                           return_value=MagicMock(stdout='{"has_more":false,"issues":[]}')) as call:
@@ -139,10 +147,52 @@ class PollTests(unittest.TestCase):
                     poller.poll(PROJECT,True,root,max_parallel=2)
                 self.assertCountEqual(processed,["OAS-14","OAS-17"])
 
-    def test_parallel_capacity_rejects_more_than_two(self):
+    def test_parallel_capacity_rejects_out_of_bounds(self):
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(ValueError,"one or two"):
-                poller.poll(PROJECT,True,Path(temp),max_parallel=3)
+            for count in (0,21):
+                with self.assertRaisesRegex(ValueError,"1..20"):
+                    poller.poll(PROJECT,True,Path(temp),max_parallel=count)
+
+    def test_full_worker_pool_retains_queue_without_claims(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with patch.object(poller,"ready_issues",return_value=[ISSUE]),patch.object(
+                poller.handoff,"read_issue",return_value=ISSUE),patch.object(
+                poller,"controller_receipt",return_value=root/"none"),patch.object(
+                poller,"worker_slots",return_value=0),patch.object(
+                poller,"dispatch_one") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),"no_capacity")
+                dispatch.assert_not_called()
+                self.assertFalse((root/"OAS-14.claim").exists())
+
+    def test_admit_four_distinct_targets_in_parallel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            entries=[{**ISSUE,"identifier":f"OAS-{i}","metadata":{
+                **META,"fleet_target_issue":str(100+i)}}
+                for i in range(30,34)]
+            with patch.object(poller,"ready_issues",return_value=entries),patch.object(
+                poller.handoff,"read_issue",side_effect=lambda k:next(
+                    x for x in entries if x["identifier"]==k)),patch.object(
+                poller,"controller_receipt",side_effect=lambda m:root/(m["fleet_target_issue"]+".json")),patch.object(
+                poller,"worker_slots",return_value=4) as capacity,patch.object(
+                poller,"dispatch_one",return_value="dispatched") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),"dispatched_parallel")
+                self.assertEqual(dispatch.call_count,4)
+                capacity.assert_called_once_with("MakerParsDev/oc-test",4)
+
+    def test_worker_slots_exactly_counts_busy_workflow_runs(self):
+        sample=lambda total:MagicMock(stdout=__import__("json").dumps({
+            "total_count":total,
+            "workflow_runs":[{"status":"in_progress"} for _ in range(total)]}))
+        with patch.object(poller.subprocess,"run",side_effect=[
+            sample(1),sample(1),sample(0),sample(0)]) as gh:
+            self.assertEqual(REAL_WORKER_SLOTS("MakerParsDev/oc-test",4),2)
+            self.assertEqual(gh.call_count,4)
+        with patch.object(poller.subprocess,"run",return_value=MagicMock(
+            stdout='{"total_count":101,"workflow_runs":[]}')):
+            with self.assertRaisesRegex(ValueError,"Incomplete"):
+                REAL_WORKER_SLOTS("MakerParsDev/oc-test",4)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,6 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=%h/.local/share/oc-fleet-dispatch
 Environment=PYTHONDONTWRITEBYTECODE=1
-ExecStart=/usr/bin/flock -n %h/.local/state/oc-fleet/dispatch.lock /usr/bin/python3 .github/scripts/oc_fleet_multica_poll.py --project-id 0506e0e5-01a7-4de9-b63b-67e993809721 --run --max-parallel 2 --repair-pilot-pr2 --auto-codacy-bare-assert
+ExecStart=/usr/bin/flock -n %h/.local/state/oc-fleet/dispatch.lock /usr/bin/python3 .github/scripts/oc_fleet_multica_poll.py --project-id 0506e0e5-01a7-4de9-b63b-67e993809721 --run --max-parallel 4 --repair-pilot-pr2 --auto-codacy-bare-assert
 TimeoutStartSec=40min
 NoNewPrivileges=true
