@@ -20,6 +20,9 @@ on:
       - '.github/scripts/test_oc_fleet_auto_repair.py'
       - '.github/scripts/oc_fleet_osv_lockfile.py'
       - '.github/scripts/test_oc_fleet_osv_lockfile.py'
+      - '.github/scripts/oc_fleet_osv_publish.py'
+      - '.github/scripts/test_oc_fleet_osv_publish.py'
+      - 'docs/oc-fleet-osv-existing-pr-publisher.md'
       - 'docs/oc-fleet-osv-npm-lockfile.md'
       - 'docs/oc-fleet-automatic-codacy-repair.md'
       - 'docs/oc-fleet-scoped-production-repair.md'
@@ -46,6 +49,9 @@ on:
       - '.github/scripts/test_oc_fleet_auto_repair.py'
       - '.github/scripts/oc_fleet_osv_lockfile.py'
       - '.github/scripts/test_oc_fleet_osv_lockfile.py'
+      - '.github/scripts/oc_fleet_osv_publish.py'
+      - '.github/scripts/test_oc_fleet_osv_publish.py'
+      - 'docs/oc-fleet-osv-existing-pr-publisher.md'
       - 'docs/oc-fleet-osv-npm-lockfile.md'
       - 'docs/oc-fleet-automatic-codacy-repair.md'
       - 'docs/oc-fleet-scoped-production-repair.md'
@@ -72,6 +78,7 @@ jobs:
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_scoped_repair.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_auto_repair.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_osv_lockfile.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_osv_publish.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_telemetry.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_tools.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_identity.py -v
