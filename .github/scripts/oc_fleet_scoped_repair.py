@@ -29,7 +29,7 @@ REPAIR_MODEL = "opencode/big-pickle"
 MAX_ATTEMPTS = 2
 POLICY_FIELDS = frozenset({
     "repository", "pr", "head_sha", "head_branch", "check_name",
-    "check_run_id", "check_app_id", "allowed_paths", "repair_goal",
+    "check_run_id", "check_app_id", "check_conclusion", "allowed_paths", "repair_goal",
     "required_green_checks",
 })
 SHA = re.compile(r"[a-f0-9]{40}\Z")
@@ -61,6 +61,8 @@ def load_policy(filename):
             "Pinned check/app IDs required")
     require(isinstance(data["check_name"], str)
             and 2 <= len(data["check_name"]) <= 180, "Invalid check name")
+    require(data["check_conclusion"] in ("failure","action_required"),
+            "Only explicitly selected terminal CI failure/action_required can be repaired")
     paths = data["allowed_paths"]
     require(type(paths) is list and 1 <= len(paths) <= 3
             and len(set(paths)) == len(paths)
@@ -113,7 +115,7 @@ def fetch_verified(policy, target):
     require(failure.get("id") == policy["check_run_id"]
             and failure.get("name") == policy["check_name"]
             and (failure.get("app") or {}).get("id") == policy["check_app_id"]
-            and failure.get("conclusion") == "failure",
+            and failure.get("conclusion") == policy["check_conclusion"],
             "Failed check publisher or identity mismatch")
     statuses = worker.gh(target, f"repos/{repo}/commits/{sha}/status")
     require(statuses.get("state") in ("success",) or
