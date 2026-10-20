@@ -157,3 +157,40 @@ This proves real named-profile selection **and** GitHub-hosted agent execution
 for python-backend. It does not independently certify every specialist
 profile, concurrency above four, private repository checkout or automatic
 cross-account routing.
+
+## Two-specialist concurrent acceptance (20 October 2026)
+
+The deployed four-worker system independently dispatched **two different
+named skill profiles in the same 21:40 systemd tick**, without a chat-managed
+model or additional worker account:
+
+| Multica | Specialist / execution | Target issue | Worker run | External PR |
+| --- | --- | --- | --- | --- |
+| OAS-28 | embedded-firmware / base | [ADXL355 #134](https://github.com/oaslananka/adxl355/issues/134) | [39476805038](https://github.com/MakerParsDev/oc-test/actions/runs/39476805038) | [#136](https://github.com/oaslananka/adxl355/pull/136) |
+| OAS-29 | security-review / python-ruff | [ADXL355 #135](https://github.com/oaslananka/adxl355/issues/135) | [39476804362](https://github.com/MakerParsDev/oc-test/actions/runs/39476804362) | [#137](https://github.com/oaslananka/adxl355/pull/137) |
+
+Both worker runs used the free opencode/big-pickle model, passed their
+GitHub-hosted validation and actual unprivileged agent execution on attempt
+1, and emitted independent authenticated artifacts. The scheduled detached
+controller published each task as a scope-checked PR. Both OAS-28/OAS-29
+entered in_review/pr_created. Neither production PR was auto-merged.
+
+- Embedded C/SPI repair changes only c/examples/linux_spi_transfer.c and
+  c/tests/test_linux_spi_transfer.c. Independent CMake
+  ADXL355_BUILD_TESTS=ON and focused ctest succeeded.
+  A follow-on test-only review commit replaced an analyzer-flagged buffer
+  sentinel with a safe C struct assignment; Codacy then passed.
+- Defensive calibration input validation changes only
+  python/src/adxl355/calibration.py and python/tests/test_calibration.py.
+  Independent test results: 29/29 focused calibration and 195/195 Python
+  suite, with no hardware or exploit claims.
+- Shared dependency-audit failures on both PRs were traced to the main
+  branch Node lockfile's transitive vite 8.3.0 dependency, flagged by OSV
+  GHSA-698v-4r3x-3vcv. The patched version is 8.3.3. The separate
+  [dependency issue #138](https://github.com/oaslananka/adxl355/issues/138)
+  and Multica OAS-30 track remediation. No OSV/Codacy check was bypassed.
+
+This verifies **two concurrent distinct specialist skills**, not
+automatic cross-account load balancing, private repository support, or
+higher-than-four concurrency. Production PRs remain PR-only until their
+individual checks and separate review/merge authority are satisfied.
