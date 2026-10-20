@@ -17,6 +17,7 @@ file. Example structure with ILLUSTRATIVE, not live, identities:
   "check_name": "Python (3.12)",
   "check_run_id": 123456789,
   "check_app_id": 15368,
+  "check_conclusion": "failure",
   "required_green_checks": ["Python (3.12)", "Semgrep"],
   "allowed_paths": [
     "python/src/adxl355/adapters/spidev.py",

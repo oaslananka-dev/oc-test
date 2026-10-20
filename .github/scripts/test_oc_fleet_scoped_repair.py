@@ -20,6 +20,7 @@ POLICY={
     "check_name":"Python (3.12)",
     "check_run_id":123456789,
     "check_app_id":15368,
+    "check_conclusion":"failure",
     "required_green_checks":["Python (3.12)","Semgrep"],
     "allowed_paths":["python/src/adxl355/adapters/spidev.py","python/tests/test_spidev_adapter.py"],
     "repair_goal":"Close leaked SPI handle when mode configuration raises, preserve original error and test retry.",
@@ -77,6 +78,7 @@ class ScopedTests(unittest.TestCase):
                 {"required_green_checks":["Semgrep"]},
                 {"repair_goal":"short"},
                 {"check_run_id":True},
+                {"check_conclusion":"neutral"},
                 {"pr":False},
             ):
                 with self.subTest(changed=changed):
@@ -91,6 +93,16 @@ class ScopedTests(unittest.TestCase):
         with patch.object(repair.worker,"gh",side_effect=mock_routes()):
             result=repair.fetch_verified(POLICY,{})
         self.assertEqual(result["id"],POLICY["check_run_id"])
+
+    def test_explicit_action_required_conclusion_from_exact_app(self):
+        configured={**POLICY,"check_conclusion":"action_required"}
+        checks=evidence()
+        checks["check_runs"][0]["conclusion"]="action_required"
+        with patch.object(repair.worker,"gh",side_effect=mock_routes(checks=checks)):
+            self.assertEqual(repair.fetch_verified(configured,{})["id"],configured["check_run_id"])
+        with patch.object(repair.worker,"gh",side_effect=mock_routes(checks=checks)):
+            with self.assertRaisesRegex(ValueError,"publisher"):
+                repair.fetch_verified(POLICY,{})
 
     def test_other_failed_check_blocks(self):
         checks=evidence()
