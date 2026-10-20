@@ -55,6 +55,19 @@ class RepairTests(unittest.TestCase):
             with self.subTest(delta=delta):
                 self.assertFalse(repair.can_repair({**ISSUE,**delta}))
 
+    def test_publish_read_after_write_eventual_consistency(self):
+        observed=iter([SHA,SHA,AFTER])
+        pauses=[]
+        repair.confirm_new_head(lambda: next(observed),SHA,AFTER,
+                                pause=pauses.append,tries=5)
+        self.assertEqual(pauses,[2,2])
+
+    def test_publish_read_after_write_unknown_head_is_blocked(self):
+        with self.assertRaisesRegex(ValueError,"Unexpected concurrent"):
+            repair.confirm_new_head(lambda:"c"*40,SHA,AFTER,pause=lambda _:None)
+        with self.assertRaisesRegex(ValueError,"reconcile"):
+            repair.confirm_new_head(lambda:SHA,SHA,AFTER,pause=lambda _:None,tries=3)
+
     def test_manifest_strict_path_and_nonpublishing_worker(self):
         m=repair.build_manifest(SHA,[repair.REPO])
         self.assertEqual(m["checkout_sha"],SHA)
