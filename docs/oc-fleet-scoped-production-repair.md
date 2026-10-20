@@ -59,7 +59,33 @@ Repository access is read from the preexisting allowlist without modifying
 secrets. Check names are not diagnosed as root causes; repair goals come from
 the owner's local policy, never bot comments or untrusted CI logs.
 
-Status 20 Oct 2026: no open ADXL355 PRs, so there is no live production target.
-This mode is NOT wired into the existing five-minute timer. Offline mocked
-and bare-Git tests alone do not establish a production acceptance.
-The previously validated F1 repair remains unchanged.
+## Verified live production acceptance — 20 October 2026
+
+The bounded operator-selected path was executed against public ADXL355
+PR #128, which added a useful SPI double-close regression test. Its initial
+SHA was 124dea2c33e5db1eaddbf2a18f1635286f0b5d39. The only failing
+check was Codacy Static Code Analysis with conclusion action_required
+(check run 118649076356, publisher App 56611), identifying one bare
+Python assertion. All other PR checks finished successfully or neutrally.
+
+The owner-private policy pinned this exact PR, head SHA, check name,
+publisher and check run ID, and allowed only
+python/tests/test_spidev_adapter.py. The free OpenCode worker ran in
+GitHub Actions https://github.com/MakerParsDev/oc-test/actions/runs/39429434132
+The publisher independently verified the result and appended commit
+0a0f2309a31e1d144436ff3fd0c81fc2aa97f00f to the same PR branch,
+with the original SHA as its sole parent. The resulting patch changed
+one assertion to self.assertEqual; no extra PR or force-push.
+
+The new SHA received 47 successful and 1 neutral PR checks, no failures
+or pending checks, including required Codacy, Python 3.10–3.12,
+Sonar and Semgrep. The SQLite receipt moved from PUBLISHED to
+CI_SUCCEEDED via an independent --verify-ci call. There was one worker
+dispatch. The useful SPI regression test was squash-merged as ADXL355
+PR #128 (merge SHA 202af610740abb8d9f3150d09a69dfb3969aeb3a).
+
+This proves a single selected, real production PR repair; it is not
+evidence that arbitrary CI failures, review comments, dependency problems
+or conflicts can be repaired autonomously. Production repair remains
+explicit opt-in, not part of the five-minute timer. The F1 fixture repair
+and two-worker issue dispatch are unchanged.
