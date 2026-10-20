@@ -35,6 +35,30 @@ def read_issue(issue_key):
     return data
 
 
+def extra_allowed_paths(meta):
+    """Decode explicit extra file scopes from Multica primitive-only metadata.
+
+    Native lists from existing contracts remain accepted. Multica V1 stores
+    JSON arrays as strings; never treat a comma string or an invalid JSON
+    value as authorization. The validated list is never written back.
+    """
+    extra = meta.get("fleet_allowed_paths", [])
+    if type(extra) is str:
+        if len(extra) > 4096:
+            raise ValueError("Unsafe extra paths")
+        try:
+            extra = json.loads(extra)
+        except (ValueError, TypeError) as error:
+            raise ValueError("Unsafe extra paths") from error
+    if type(extra) is not list or len(extra) > 11 or any(
+        not isinstance(path, str)
+        or not clean_relpath(path, directory=path.endswith("/"))
+        for path in extra
+    ):
+        raise ValueError("Unsafe extra paths")
+    return extra
+
+
 def validate_issue(issue, key, project_id, execute):
     if issue.get("identifier") != key or issue.get("project_id") != project_id:
         raise ValueError("issue identity/project mismatch")
@@ -62,11 +86,7 @@ def validate_issue(issue, key, project_id, execute):
         raise ValueError("Unsafe Multica allowed path")
     # Additional paths are explicit rather than automatically inferred
     # from repository data, bot comments, or issue prose.
-    extra=meta.get("fleet_allowed_paths",[])
-    if type(extra) is not list or len(extra) > 11 or any(
-            not isinstance(p,str) or not clean_relpath(
-                p,directory=p.endswith("/")) for p in extra):
-        raise ValueError("Unsafe extra paths")
+    extra=extra_allowed_paths(meta)
     paths=[path,*extra]
     if len({x.casefold() for x in paths}) != len(paths):
         raise ValueError("Duplicate or overlapping scope")
@@ -99,7 +119,7 @@ def controller_command(key, meta, execute):
         "--multica-issue", key,
         "--require-approved-target",
     ]
-    for scope in [meta["fleet_allowed_path"], *meta.get("fleet_allowed_paths",[])]:
+    for scope in [meta["fleet_allowed_path"], *extra_allowed_paths(meta)]:
         cmd.extend(["--path",scope])
     if meta.get("fleet_external_pr_only") is True:
         cmd.append("--external-pr-only")
