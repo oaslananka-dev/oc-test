@@ -12,6 +12,9 @@ on:
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_pr_triage.py'
+      - '.github/scripts/test_oc_fleet_pr_triage.py'
+      - 'docs/oc-fleet-ci-review-triage.md'
       - '.github/workflows/oc-fleet-worker.yml'
       - '.github/workflows/oc-fleet-issue-tests.yml'
       - 'docs/oc-fleet-github-issue.md'
@@ -26,6 +29,9 @@ on:
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_pr_triage.py'
+      - '.github/scripts/test_oc_fleet_pr_triage.py'
+      - 'docs/oc-fleet-ci-review-triage.md'
       - '.github/workflows/oc-fleet-worker.yml'
       - '.github/workflows/oc-fleet-issue-tests.yml'
       - 'docs/oc-fleet-github-issue.md'
@@ -44,6 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_issue.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_pr_triage.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_telemetry.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_tools.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_identity.py -v
