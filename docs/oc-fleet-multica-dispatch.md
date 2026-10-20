@@ -46,3 +46,24 @@ There is **no automatic Multica issue event trigger** in this version. A future
 trusted operator or scheduled job can select prepared issues; it must not use
 free-form issue text as execution authority. Do not enable Multica native
 OpenCode V2 execution as a workaround for the known terminal-event bug.
+
+## Optional autonomous single-operator polling
+
+The approved Multica project can be polled using
+`.github/scripts/oc_fleet_multica_poll.py`. By default it plans the first
+`fleet_ready=true` issue without launching a worker. The `--run` switch
+executes **at most one issue**, under the existing controller's repository,
+credential, workflow and patch verification gates. A local atomic claim,
+controller receipt and systemd flock guard make uncertain results fail closed.
+Claims/receipts are not silently cleared or retried.
+
+The reviewed user-level service and five-minute timer live in `ops/systemd/`.
+Deploy them on **one** authorized operator host only, with the checkout fixed
+at `~/.local/share/oc-fleet-dispatch`. Never give the GitHub-hosted worker
+the operator's write credentials.
+
+When GitHub PR publication succeeds, the poller marks the Multica issue
+`in_review` and turns `fleet_ready` off. CI review and merge remain under
+the normal protected GitHub workflow; the poller does not merge automatically.
+If dispatch fails after creating a claim, stop and reconcile the worker
+receipt/run; do not remove claims as a routine retry strategy.

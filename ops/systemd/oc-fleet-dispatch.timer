@@ -1,0 +1,10 @@
+[Unit]
+Description=Scan prepared Multica worker issues every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=true
+Unit=oc-fleet-dispatch.service
+
+[Install]
+WantedBy=timers.target
