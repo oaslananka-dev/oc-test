@@ -96,3 +96,48 @@ Offline regression tests on the installed controller: **195/195 PASS**.
 This is evidence for **one** real detached pilot lifecycle, not proof of
 arbitrary-repository auto-merge, private-repo support or more than four
 concurrent workers. Production/external repositories remain PR-only.
+
+## Two-task detached queue acceptance: OAS-24 / OAS-25
+
+Verified on 20 October 2026 in the public, pilot-only
+`oaslananka-dev/oc-test` target repo; both tasks used free
+`opencode/big-pickle` on `MakerParsDev/oc-test` GitHub-hosted workers.
+The controller used `--detached --max-parallel 4`, without a second queue
+or additional privileges.
+
+1. GitHub issues [#93](https://github.com/oaslananka-dev/oc-test/issues/93)
+   and [#94](https://github.com/oaslananka-dev/oc-test/issues/94)
+   had disjoint, explicitly allowlisted JSON fixture paths. Multica
+   OAS-24 and OAS-25 each passed dry-run validation before being marked
+   ready at 19:39:16 (Europe/Istanbul).
+2. The **19:40 scheduled** dispatcher detected two eligible tasks and
+   launched runs
+   [39459504096](https://github.com/MakerParsDev/oc-test/actions/runs/39459504096)
+   for OAS-24/#93 and
+   [39459499711](https://github.com/MakerParsDev/oc-test/actions/runs/39459499711)
+   for OAS-25/#94. Both ran concurrently, completed with `SUCCESS`,
+   and produced separate SHA/run/issue-bound artifacts (attempt 1).
+   The systemd dispatcher exited at 19:40:35, without waiting for them.
+3. The **19:45 scheduled** reconciliation used those same run IDs,
+   published [PR #95](https://github.com/oaslananka-dev/oc-test/pull/95)
+   and [PR #96](https://github.com/oaslananka-dev/oc-test/pull/96),
+   and moved both Multica tasks to `in_review`. Each PR changed exactly
+   its own six-line JSON fixture. `baseline` and Semgrep passed on
+   each PR; reviews, inline comments and issue comments were empty.
+4. The **19:50 scheduled** finalizer merged PR #95 with commit
+   `f71ef7459936875151bdc4cd38e4021442902934`, marking OAS-24
+   `done / completed`. It processed only one eligible merge per tick.
+5. The **19:55 scheduled** finalizer merged PR #96 with commit
+   `57f4ecc9b34dc1551781264401fbde4f58d80fba`, marking OAS-25
+   `done / completed`. Both GitHub issues closed; both JSON files
+   were independently verified on `main`.
+6. At final verification, exactly **two** new GitHub worker runs and
+   exactly **two** corresponding PRs were observed, without duplicates.
+   The original test PR #1 and #2 remained open; the five-minute timer
+   was still active, with an empty eligible queue.
+
+The installed controller's offline suite passed **195/195** tests.
+This demonstrates a bounded two-task **detached** queue lifecycle and
+sequential, unattended pilot merges. It is **not** acceptance for
+higher-than-four concurrency, multi-worker-account load balancing,
+non-pilot auto-merge or arbitrary-repository execution.
