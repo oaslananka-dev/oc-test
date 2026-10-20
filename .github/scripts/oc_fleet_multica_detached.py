@@ -203,6 +203,11 @@ def resume_one(item,project,live):
         return "ready_to_publish"
     command=handoff.controller_command(key,meta,True)
     command[2]="resume"
+    if meta.get("fleet_allow_safe_base_advance") is True:
+        require(meta.get("fleet_external_pr_only") is True
+                and meta.get("fleet_auto_merge",False) is False,
+                "Safe base advance not authorized for this task")
+        command.append("--allow-safe-base-advance")
     out=execute(command,540)
     result=parse_output(out,meta,"PR_CREATED")
     match=PR_URL.fullmatch(result.get("url") or "")

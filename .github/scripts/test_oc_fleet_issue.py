@@ -360,4 +360,80 @@ class IssueControllerTests(unittest.TestCase):
         with patch.object(controller,"cmd",return_value=MagicMock(stdout="b"*40,returncode=0)):
             with self.assertRaisesRegex(ValueError,"target base changed"):
                 controller.publish({},"oaslananka-dev/oc-test","main",m,{},b"",readonly=True)
+
+
+
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+
+
+class SafeBaseAdvanceTests(unittest.TestCase):
+    def git(self, repo, *parts, check=True):
+        return subprocess.run(
+            ["git", "-C", str(repo), *parts],
+            text=True, capture_output=True, check=check,
+        ).stdout.strip()
+
+    def fixture(self, directory):
+        repo = Path(directory)
+        self.git(repo, "init", "-q")
+        self.git(repo, "config", "user.name", "Test")
+        self.git(repo, "config", "user.email", "test@example.invalid")
+        (repo / "src").mkdir()
+        (repo / "src" / "thing.py").write_text("original\n")
+        (repo / "notes.md").write_text("v1\n")
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-qm", "base")
+        return self.git(repo, "rev-parse", "HEAD")
+
+    def commit(self, repo, name, body):
+        p = Path(repo) / name
+        p.write_text(body)
+        self.git(repo, "add", ".")
+        self.git(repo, "commit", "-qm", "next")
+        return self.git(repo, "rev-parse", "HEAD")
+
+    def test_unrelated_monotonic_advance_allows_same_scope_objects(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = self.fixture(folder)
+            b = self.commit(folder, "notes.md", "v2\n")
+            self.assertEqual(
+                controller.safe_base_advance(folder, a, b, ["src/thing.py"],
+                                             ["src/thing.py"], os.environ.copy()),
+                ["notes.md"])
+
+    def test_changed_file_blocks_and_directory_scope_blocks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = self.fixture(folder)
+            b = self.commit(folder, "src/thing.py", "changed\n")
+            for scope in ("src/thing.py", "src/"):
+                with self.subTest(scope=scope), self.assertRaisesRegex(
+                        ValueError, "changed approved scope"):
+                    controller.safe_base_advance(folder, a, b,
+                                                 ["src/thing.py"], [scope],
+                                                 os.environ.copy())
+
+    def test_diverged_or_rewritten_history_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = self.fixture(folder)
+            self.git(folder, "switch", "-q", "-c", "unrelated")
+            b = self.commit(folder, "notes.md", "new\n")
+            self.git(folder, "switch", "-q", "-c", "other", a)
+            c = self.commit(folder, "notes.md", "other\n")
+            with self.assertRaisesRegex(ValueError, "diverged"):
+                controller.safe_base_advance(folder, b, c,
+                                             ["src/thing.py"], ["src/thing.py"],
+                                             os.environ.copy())
+
+    def test_missing_approved_file_in_both_bases_is_safe(self):
+        with tempfile.TemporaryDirectory() as folder:
+            a = self.fixture(folder)
+            b = self.commit(folder, "notes.md", "v2\n")
+            result = controller.safe_base_advance(
+                folder, a, b, ["src/new.py"], ["src/new.py"], os.environ.copy())
+            self.assertEqual(result, ["notes.md"])
+
 if __name__=="__main__":unittest.main(verbosity=2)
