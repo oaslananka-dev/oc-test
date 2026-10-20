@@ -104,6 +104,28 @@ class DetachedTests(unittest.TestCase):
                     with self.subTest(change=change),self.assertRaises(ValueError):
                         queue.receipt_for({**selected,**change})
 
+    def test_safe_base_advance_is_not_added_for_non_opt_in_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"r.json"
+            path.write_text(json.dumps(DOC))
+            task={**ISSUE,"status":"in_progress","metadata":PENDING}
+            seen=[]
+            def execute(argv,timeout=30):
+                seen.append(argv)
+                if argv[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"success"})
+                if "resume" in argv:
+                    return json.dumps({"status":"PR_CREATED","run_id":"12345",
+                                       "url":"https://github.com/oaslananka-dev/oc-test/pull/93"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),patch.object(
+                queue.poller,"controller_receipt",return_value=path),patch.object(
+                queue,"execute",side_effect=execute):
+                self.assertEqual(queue.resume_one(task,PID,True),"published")
+            commands=[x for x in seen if "resume" in x]
+            self.assertEqual(len(commands),1)
+            self.assertNotIn("--allow-safe-base-advance",commands[0])
+
     def test_double_dispatch_stays_claimed_not_reissued(self):
         with tempfile.TemporaryDirectory() as d:
             claim=Path(d)/(KEY+".claim");claim.write_text(KEY)
