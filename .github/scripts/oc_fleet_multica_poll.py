@@ -127,7 +127,7 @@ def dispatch_one(item, project, execute, claim_dir):
     return "dispatched"
 
 
-def poll(project, execute, claim_dir, max_parallel=1):
+def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     if type(max_parallel) is not int or not 1 <= max_parallel <= MAX_CONTROLLER_PARALLEL:
         raise ValueError("Configured parallel limit must be 1..20")
     issues = ready_issues(project)
@@ -178,12 +178,13 @@ def poll(project, execute, claim_dir, max_parallel=1):
         for item in selected:
             print("PLAN", item["identifier"], item["metadata"]["fleet_worker_repo"])
         return "planned"
+    handler=dispatch_handler or dispatch_one
     if len(selected) == 1:
-        return dispatch_one(selected[0], project, execute, claim_dir)
+        return handler(selected[0], project, execute, claim_dir)
     errors = []
     with ThreadPoolExecutor(max_workers=len(selected), thread_name_prefix="oc-fleet") as pool:
         futures = {
-            pool.submit(dispatch_one, item, project, True, claim_dir): item["identifier"]
+            pool.submit(handler, item, project, True, claim_dir): item["identifier"]
             for item in selected
         }
         for future in as_completed(futures):
@@ -208,12 +209,19 @@ def main():
                    help="Owner opt-in: repair only pinned F1 PR #2 from trusted CI evidence")
     p.add_argument("--auto-codacy-bare-assert",action="store_true",
                    help="Opt in only verified Codacy bare-assert test-file repair on ADXL355")
+    p.add_argument("--detached",action="store_true",
+                   help="Persist worker run and reconcile completed jobs in later timer cycles")
     p.add_argument("--claim-dir", type=Path, default=Path.home() / ".local/state/oc-fleet/claims")
     args = p.parse_args()
     if not handoff.UUID_RE.fullmatch(args.project_id):
         raise ValueError("Invalid project")
-    finalizer.poll(args.project_id, args.run, controller_receipt)
-    poll(args.project_id, args.run, args.claim_dir, args.max_parallel)
+    if args.detached:
+        import oc_fleet_multica_detached
+        oc_fleet_multica_detached.cycle(args.project_id,args.run,
+                                       args.claim_dir,args.max_parallel)
+    else:
+        finalizer.poll(args.project_id, args.run, controller_receipt)
+        poll(args.project_id, args.run, args.claim_dir, args.max_parallel)
     if args.repair_pilot_pr2:
         import oc_fleet_pr_repair
         oc_fleet_pr_repair.execute_once(
