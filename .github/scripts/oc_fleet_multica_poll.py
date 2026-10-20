@@ -164,6 +164,8 @@ def main():
     p.add_argument("--max-parallel", type=int, choices=(1, 2), default=1)
     p.add_argument("--repair-pilot-pr2", action="store_true",
                    help="Owner opt-in: repair only pinned F1 PR #2 from trusted CI evidence")
+    p.add_argument("--auto-codacy-bare-assert",action="store_true",
+                   help="Opt in only verified Codacy bare-assert test-file repair on ADXL355")
     p.add_argument("--claim-dir", type=Path, default=Path.home() / ".local/state/oc-fleet/claims")
     args = p.parse_args()
     if not handoff.UUID_RE.fullmatch(args.project_id):
@@ -176,6 +178,20 @@ def main():
             Path.home() / ".local/state/oc-fleet/f1-repairs.sqlite3",
             dry_run=not args.run,
         )
+    if args.auto_codacy_bare_assert:
+        import oc_fleet_auto_repair
+        try:
+            oc_fleet_auto_repair.poll(
+                Path.home()/".local/state/oc-fleet/auto-policies",
+                Path.home()/".local/state/oc-fleet/scoped-repairs.sqlite3",
+                live=args.run,
+            )
+        except (ValueError, OSError, subprocess.SubprocessError,
+                json.JSONDecodeError, KeyError, TypeError) as err:
+            # The optional production selector must not halt F1 or issue dispatch.
+            # Existing durable reservations remain for owner reconciliation.
+            print("AUTO_REPAIR_BLOCKED", type(err).__name__,
+                  str(err)[:160], file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":
