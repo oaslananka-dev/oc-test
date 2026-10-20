@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import tempfile
 import uuid
 
@@ -98,6 +99,18 @@ def build_manifest(sha, allowed):
     return manifest
 
 
+def confirm_new_head(read_sha, previous_sha, published_sha, *, pause=time.sleep, tries=6):
+    """Account for eventually consistent GitHub PR HEAD reads, not job retries."""
+    for attempt in range(tries):
+        observed = read_sha()
+        if observed == published_sha:
+            return
+        require(observed == previous_sha, "Unexpected concurrent PR HEAD after push")
+        if attempt + 1 < tries:
+            pause(2)
+    raise ValueError("Published PR SHA not visible; reconcile durable run before retry")
+
+
 def publish_repair(target, sha, evidence, patch):
     """Apply the provenance-checked patch as a NEW fast-forward commit on same PR."""
     require(approved_pr(target) == sha, "PR head moved before repair publication")
@@ -140,7 +153,7 @@ def publish_repair(target, sha, evidence, patch):
         controller.cmd(["git", "-C", str(checkout), "-c", "credential.helper=",
                         "-c", "credential.helper=!gh auth git-credential",
                         "push", "origin", f"HEAD:refs/heads/{BRANCH}"], target)
-        require(approved_pr(target) == commit, "Published PR SHA not confirmed")
+        confirm_new_head(lambda: approved_pr(target), sha, commit)
         print("REPAIR_PUBLISHED", PR_NUMBER, commit, flush=True)
         return commit
 
