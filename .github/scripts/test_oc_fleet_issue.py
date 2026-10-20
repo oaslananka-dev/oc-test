@@ -230,14 +230,18 @@ class IssueControllerTests(unittest.TestCase):
                 controller.repo_issue("oaslananka/adxl355",124,{})
             self.assertEqual(controller.repo_issue(
                 "oaslananka/adxl355",124,{},external_pr_only=True)[1],"a"*40)
+            data["squash_merge_commit_title"]="PR_TITLE"
+            data["squash_merge_commit_message"]="BLANK"
+            self.assertEqual(controller.repo_issue(
+                "oaslananka/adxl355",124,{},external_pr_only=True)[1],"a"*40)
             data["squash_merge_commit_message"]="PR_BODY"
-            with self.assertRaisesRegex(ValueError,"exact known"):
+            with self.assertRaisesRegex(ValueError,"approved target"):
                 controller.repo_issue("oaslananka/adxl355",124,{},external_pr_only=True)
         # The approval is never implicitly inherited by the main pilot repo.
         data.update(full_name=controller.RUNNER,
                     squash_merge_commit_message="COMMIT_MESSAGES")
         with patch.object(controller,"gh",return_value=data):
-            with self.assertRaisesRegex(ValueError,"exact known"):
+            with self.assertRaisesRegex(ValueError,"approved target"):
                 controller.repo_issue(controller.RUNNER,124,{},external_pr_only=True)
 
     def test_private_target_fails_closed(self):
@@ -245,6 +249,17 @@ class IssueControllerTests(unittest.TestCase):
              "permissions":{"push":True},"private":True}):
             with self.assertRaisesRegex(ValueError,"private target"):
                 controller.repo_issue("oaslananka-dev/oc-test",12,{})
+    def test_multica_rejects_unapproved_repo_without_secret_mutation(self):
+        with patch.object(controller,"cmd",return_value=MagicMock(
+                stdout="oaslananka-dev/oc-test,oaslananka/adxl355",
+                returncode=0)) as call:
+            self.assertIn("oaslananka/adxl355",
+                          controller.require_approved_target("oaslananka/adxl355"))
+            with self.assertRaisesRegex(ValueError,"not explicitly approved"):
+                controller.require_approved_target("evil/other")
+            self.assertEqual(call.call_count,2)
+            self.assertTrue(all("get" in c.args[0] for c in call.call_args_list))
+
     def test_allowlist_registered(self):
         with patch.object(controller,"cmd",return_value=MagicMock(stdout="oaslananka-dev/oc-test",returncode=0)) as call:
             allow=controller.allow_target({},"org/name",preview=False)

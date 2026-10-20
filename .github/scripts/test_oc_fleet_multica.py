@@ -69,6 +69,32 @@ class HandoffTests(unittest.TestCase):
             with self.subTest(v=v),self.assertRaises(ValueError):
                 handoff.validate_issue(record(**v),KEY,PID,False)
 
+    def test_multirepo_scope_explicit_and_no_auto_merge(self):
+        meta=handoff.validate_issue(record(
+            fleet_target_repo="oaslananka/adxl355",
+            fleet_target_issue="124",
+            fleet_allowed_path="python/tests/test_spidev_adapter.py",
+            fleet_allowed_paths=["python/src/adxl355/adapters/spidev.py"],
+            fleet_external_pr_only=True,
+            fleet_auto_merge=False,
+            fleet_ready=True,
+        ),KEY,PID,True)
+        cmd=handoff.controller_command(KEY,meta,True)
+        self.assertEqual(cmd.count("--path"),2)
+        self.assertIn("--external-pr-only",cmd)
+        self.assertIn("--require-approved-target",cmd)
+        for updates in (
+            {"fleet_target_repo":"oaslananka/adxl355"},
+            {"fleet_target_repo":"oaslananka/adxl355","fleet_external_pr_only":True,
+             "fleet_auto_merge":True},
+            {"fleet_allowed_path":".github/workflows/build.yml"},
+            {"fleet_allowed_path":"python/../secrets"},
+            {"fleet_allowed_path":"python/tests/test_spidev_adapter.py", "fleet_allowed_paths":["python/tests/test_spidev_adapter.py"]},
+            {"fleet_allowed_paths":["python/tests/","python/tests/test_spidev_adapter.py"]},
+        ):
+            with self.subTest(updates=updates),self.assertRaises(ValueError):
+                handoff.validate_issue(record(**updates),KEY,PID,False)
+
     def test_read_issue_uses_exact_json_api(self):
         class Reply:
             stdout='{"identifier":"OAS-14"}'

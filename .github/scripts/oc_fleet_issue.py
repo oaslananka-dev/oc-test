@@ -56,8 +56,10 @@ def repo_issue(repo,issue,env,*,external_pr_only=False):
                            data.get("squash_merge_commit_message"))
         if external_pr_only:
             require(repo.lower() != RUNNER.lower()
-                    and squash_defaults == ("COMMIT_OR_PR_TITLE", "COMMIT_MESSAGES"),
-                    "external PR-only mode requires the exact known target squash defaults")
+                    and squash_defaults in (
+                        ("COMMIT_OR_PR_TITLE", "COMMIT_MESSAGES"),
+                        ("PR_TITLE", "BLANK")),
+                    "external PR-only mode requires approved target squash defaults")
         else:
             require(squash_defaults == ("PR_TITLE", "BLANK"),
                     "target repository squash defaults must be PR_TITLE/BLANK; "
@@ -96,6 +98,22 @@ def allow_target(env,repo,preview):
             cmd(["doppler","secrets","set","FLEET_ALLOWED_REPOS="+",".join(allow),
                  *scope,"--silent"],doppler_env)
     return allow
+def require_approved_target(repo):
+    """Multica dispatch cannot expand the owner's Doppler repo authorization."""
+    env=os.environ.copy()
+    for key in ("GH_TOKEN","GITHUB_TOKEN","DOPPLER_TOKEN"):
+        env.pop(key,None)
+    reply=cmd(["doppler","secrets","get","FLEET_ALLOWED_REPOS","--plain",
+               "--project","oc-test","--config","main"],env,ok=False,deadline=30)
+    require(reply.returncode == 0,"Target repository allowlist unavailable")
+    allowed=[x.strip() for x in reply.stdout.strip().split(",") if x.strip()]
+    require(0 < len(allowed) < 100 and all(REPO.fullmatch(x) for x in allowed),
+            "Invalid authorized repository list")
+    require(repo.lower() in {x.lower() for x in allowed},
+            "Multica target is not explicitly approved in Doppler")
+    return allowed
+
+
 def manifest_for(repo,issue,sha,branch,prompt,args,allow):
     task=f"gh-{issue}-{uuid.uuid4().hex[:12]}"
     m=dict(schema_version=1,task_id=task,source="rules",repository=repo,
@@ -415,6 +433,8 @@ def main():
     a.add_argument("--dry-run",action="store_true")
     a.add_argument("--retry-failed",action="store_true")
     a.add_argument("--verify-only",action="store_true")
+    a.add_argument("--require-approved-target",action="store_true",
+                   help="Fail closed on Multica target not already in Doppler allowlist")
     a.add_argument("--external-pr-only",action="store_true",
                    help="Explicit external repo PR publication only: accept COMMIT_OR_PR_TITLE/COMMIT_MESSAGES; never auto-merge")
     args=a.parse_args()
@@ -433,6 +453,8 @@ def main():
         from_catalog(catalog,args.tool_profile)
     if args.mode=="run":
         history=[] if args.dry_run else retry_receipt(worker,file,args.retry_failed,runner=runner)
+        if args.require_approved_target:
+            require_approved_target(args.repo)
         allow=allow_target(worker,args.repo,args.dry_run)
         m=manifest_for(args.repo,args.issue,sha,branch,prompt,args,allow)
         if args.dry_run:

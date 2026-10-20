@@ -11,6 +11,8 @@ import re
 import subprocess
 import sys
 
+from oc_fleet_contract import clean_relpath
+
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
 UUID_RE = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\Z")
 REPO_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9_.-]{1,100}\Z")
@@ -54,11 +56,29 @@ def validate_issue(issue, key, project_id, execute):
         v = meta[name]
         if not isinstance(v, str) or not ACCOUNT_RE.fullmatch(v):
             raise ValueError("invalid authorized account")
-    allowed_path = meta["fleet_allowed_path"]
-    if (not isinstance(allowed_path, str) or not allowed_path.startswith("playground/fleet/")
-            or ".." in allowed_path or allowed_path.endswith("/")
-            or not re.fullmatch(r"[a-zA-Z0-9_./-]+", allowed_path)):
-        raise ValueError("invalid pilot file scope")
+    path = meta["fleet_allowed_path"]
+    if not isinstance(path,str) or not clean_relpath(
+            path,directory=path.endswith("/")):
+        raise ValueError("Unsafe Multica allowed path")
+    # Additional paths are explicit rather than automatically inferred
+    # from repository data, bot comments, or issue prose.
+    extra=meta.get("fleet_allowed_paths",[])
+    if type(extra) is not list or len(extra) > 11 or any(
+            not isinstance(p,str) or not clean_relpath(
+                p,directory=p.endswith("/")) for p in extra):
+        raise ValueError("Unsafe extra paths")
+    paths=[path,*extra]
+    if len({x.casefold() for x in paths}) != len(paths):
+        raise ValueError("Duplicate or overlapping scope")
+    if any(a != b and a.endswith("/") and b.startswith(a)
+           for a in paths for b in paths):
+        raise ValueError("Overlapping directory scope")
+    if meta.get("fleet_auto_merge",False) is True and target.lower() != "oaslananka-dev/oc-test":
+        raise ValueError("Automerge only supported for the pilot repository")
+    if type(meta.get("fleet_external_pr_only",False)) is not bool:
+        raise ValueError("External PR-only switch must be boolean")
+    if target.lower() != "oaslananka-dev/oc-test" and meta.get("fleet_external_pr_only") is not True:
+        raise ValueError("Non-pilot repo requires external PR-only authorization")
     if type(meta["fleet_ready"]) is not bool:
         raise ValueError("fleet_ready must be boolean")
     if execute and not meta["fleet_ready"]:
@@ -71,14 +91,18 @@ def controller_command(key, meta, execute):
         sys.executable, str(Path(__file__).with_name("oc_fleet_issue.py")), "run",
         "--repo", meta["fleet_target_repo"],
         "--issue", meta["fleet_target_issue"],
-        "--path", meta["fleet_allowed_path"],
         "--worker-account", meta["fleet_worker_account"],
         "--worker-repo", meta["fleet_worker_repo"],
         "--target-account", meta["fleet_target_account"],
         "--model", "opencode/big-pickle",
         "--profile", "base",
-        "--multica-issue", key
+        "--multica-issue", key,
+        "--require-approved-target",
     ]
+    for scope in [meta["fleet_allowed_path"], *meta.get("fleet_allowed_paths",[])]:
+        cmd.extend(["--path",scope])
+    if meta.get("fleet_external_pr_only") is True:
+        cmd.append("--external-pr-only")
     if not execute:
         cmd.append("--dry-run")
     return cmd
