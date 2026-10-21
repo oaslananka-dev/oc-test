@@ -124,8 +124,14 @@ jobs:
           set -uo pipefail
           start=$SECONDS
           set +e
+          # Targeted DEBUG for the repeatedly timed-out sandbox task.
+          # Raw model/debug output remains runner-local, never uploaded.
+          f2_debug=()
+          if [ "$F2_PLAN" = "capacity-10" ] && [ "$F2_TASK_ID" = "f2-cap10-e" ]; then
+            f2_debug=(--print-logs --log-level debug)
+          fi
           timeout --signal=TERM --kill-after=20 "$F2_DEADLINE_SECONDS" \
-            opencode run --standalone --model opencode/big-pickle --agent build \
+            opencode "${f2_debug[@]}" run --standalone --model opencode/big-pickle --agent build \
             --format default "$(cat "$RUNNER_TEMP/f2-prompt.txt")" \
             > "$RUNNER_TEMP/f2-agent.log" 2>&1
           code=$?
@@ -155,15 +161,13 @@ jobs:
             --agent-seconds "$F2_AGENT_SECONDS" \
             --deadline-seconds "$F2_DEADLINE_SECONDS" \
             --out "$RUNNER_TEMP/f2-artifact"
-      - name: Show bounded agent log tail (job log only, never uploaded)
-        if: always() && steps.opencode.outcome == 'failure'
+      - name: Emit safe fixed-field diagnostics for failed OpenCode task
+        if: always() && steps.prepare.outcome == 'success' && steps.opencode.outcome == 'failure'
         shell: bash
         run: |
-          # Neutralize "::" so model output cannot inject workflow commands.
-          f="$RUNNER_TEMP/f2-agent.log"
-          if [ -f "$f" ]; then
-            tail -n 30 "$f" | cut -c1-200 | sed 's/::/: :/g'
-          fi
+          set -euo pipefail
+          # No raw agent text or log tail is sent to the GitHub job log.
+          python3 .github/scripts/ocfilo_f2_diagnostics.py --log "$RUNNER_TEMP/f2-agent.log"
       - name: Upload exact-SHA task evidence ONLY
         if: always()
         uses: actions/upload-artifact@v6

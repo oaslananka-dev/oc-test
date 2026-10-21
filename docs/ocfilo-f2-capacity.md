@@ -35,6 +35,30 @@ Runs up to and including the first 10-worker run had no failures or retries.
   agent log to the job log on failure (never to an artifact), so the next
   `AGENT_ERROR` can be diagnosed.
 
+### 21 October 2026: ten-worker recovery measurement
+
+- Real [Actions run 39610361972](https://github.com/oaslananka-dev/oc-test/actions/runs/39610361972) was a single manually authorized capacity-10 execution on main SHA
+  03d487448e6fb55d5d40d0d9f826765db135d323, with the free
+  opencode/big-pickle model, a 600-second hard deadline, and at most two
+  attempts per task.
+- Ten separate GitHub worker jobs started together at 13:42:48 UTC; nine
+  completed successfully in round 1. Task f2-cap10-e again exceeded 600
+  seconds and failed; only that task retried, succeeding in round 2.
+- GitHub verified ten eventually successful worker jobs, one earlier failed
+  attempt, and a successful final state job. The overall workflow was
+  **FAILURE** due to the first attempt, so it does **not** meet the strict
+  zero-timeout 10/10 acceptance and is not eligible for trusted publication.
+- The Ops GitHub App confirmed 12 artifact names and SHA-256 digests. Direct
+  independent artifact byte-level verification was blocked by the personal
+  GitHub API rate limit. The final COMPLETE JSON was not independently read.
+- Repeated timeout of e does not establish a root cause: provider/network
+  stall, repeated model loop and excessive tool use remain hypotheses.
+  External issue reports about free Big Pickle hangs are not proof for this run.
+- Follow-up changes add targeted local-only DEBUG logging for just the affected
+  sandbox task and fixed-field non-content diagnostics when the worker fails.
+  They do not change the fixed model, capacity, deadline, retry allowance,
+  credentials, or fail-closed artifact checks. Cap 5 remains validated.
+
 ## Decisions
 
 - **Cap 5 is validated** (`VALIDATED_CAPACITY = 5`) after two clean 5-worker
