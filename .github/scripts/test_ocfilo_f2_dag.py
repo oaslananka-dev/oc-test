@@ -403,6 +403,45 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("cut -c1-200", self.ROUND)
         self.assertNotIn("path: " + "$" + "{{ runner.temp }}/f2-agent", self.ROUND)
 
+    def test_expected_worker_failure_is_evidence_not_final_workflow_failure(self):
+        # Issue #10 regression: run 39610361972 eventually reached COMPLETE
+        # after a timeout/retry, but the earlier worker job poisoned Actions.
+        # Only agent execution/finalization may tolerate expected step failure;
+        # the upload, plan, and final state must remain strict.
+        agent = self.ROUND.split(
+            "      - name: Run ONE scoped OpenCode task under a hard deadline\n", 1)
+        self.assertEqual(len(agent), 2)
+        agent = agent[1].split("      - name: Produce per-task bounded non-publishing evidence\n", 1)[0]
+        final = self.ROUND.split(
+            "      - name: Produce per-task bounded non-publishing evidence\n", 1)[1]
+        final = final.split("      - name: Emit safe fixed-field diagnostics", 1)[0]
+        self.assertIn("        continue-on-error: true\n", agent)
+        self.assertIn("        continue-on-error: true\n", final)
+        self.assertEqual(self.ROUND.count("continue-on-error: true"), 2)
+        self.assertIn("steps.opencode.outcome", final)
+        self.assertIn("if-no-files-found: error", self.ROUND)
+        self.assertIn("if: always()", self.ROUND)
+        self.assertIn("python3 .github/scripts/ocfilo_f2_dag.py state", self.RUN)
+        self.assertIn("--require-complete", self.RUN)
+        self.assertNotIn("continue-on-error:", self.RUN)
+
+    def test_retry_evidence_recovers_but_exhausted_or_invalid_stays_failed(self):
+        # A controlled failed attempt must survive as schema-2 evidence.
+        # GitHub's final state job still fails if the scheduler is not COMPLETE.
+        base = [evidence(t) for t in (AUDIT, FRONTEND, REPORT)]
+        timeout = evidence(BACKEND, "FAILED", "TIMEOUT", rnd=2)
+        retry = evidence(BACKEND, "SUCCEEDED", rnd=3)
+        recovered = sched.schedule(RAW, base + [timeout, retry], SHA)
+        self.assertEqual(recovered["outcome"], "COMPLETE")
+        self.assertEqual(recovered["tasks"][BACKEND]["state"], "SUCCEEDED")
+        self.assertEqual(recovered["tasks"][BACKEND]["attempts"], 1)
+        exhausted = sched.schedule(
+            RAW, base[:2] + [timeout, evidence(BACKEND, "FAILED", "TIMEOUT", rnd=3)], SHA)
+        self.assertEqual(exhausted["outcome"], "HALTED")
+        self.assertEqual(exhausted["tasks"][BACKEND]["state"], "FAILED")
+        with self.assertRaises(ValueError):
+            sched.schedule(RAW, base + [dict(timeout, checkout_sha="f"*40)], SHA)
+
     def test_complete_required_only_when_executing(self):
         self.assertIn("--require-complete", self.RUN)
         self.assertIn("'execute'", self.RUN)
