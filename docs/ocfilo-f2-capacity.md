@@ -48,9 +48,16 @@ Runs up to and including the first 10-worker run had no failures or retries.
   attempt, and a successful final state job. The overall workflow was
   **FAILURE** due to the first attempt, so it does **not** meet the strict
   zero-timeout 10/10 acceptance and is not eligible for trusted publication.
-- The Ops GitHub App confirmed 12 artifact names and SHA-256 digests. Direct
-  independent artifact byte-level verification was blocked by the personal
-  GitHub API rate limit. The final COMPLETE JSON was not independently read.
+- The Ops GitHub App initially confirmed 12 artifact names and SHA-256
+  digests; personal GitHub API rate limiting delayed byte-level validation.
+  Once the quota reset on 21 October, all 12 artifacts were downloaded and
+  independently replay-checked on AMD2700X with the approved capacity-10 plan
+  and exact source SHA. The 11 schema-2 worker records, round/run/attempt
+  provenance, 10 exact-owner patches and saved final DAG state all passed.
+  Independently recalculated final state matched the downloaded JSON exactly:
+  COMPLETE, 10 SUCCEEDED, one earlier TIMEOUT attempt (exit 124 / 600 s),
+  and an f2-cap10-e retry in round 2 (64 agent seconds). The GitHub workflow
+  itself remains FAILURE and strict first-try 10/10 is NOT ACCEPTED.
 - Repeated timeout of e does not establish a root cause: provider/network
   stall, repeated model loop and excessive tool use remain hypotheses.
   External issue reports about free Big Pickle hangs are not proof for this run.
@@ -84,6 +91,25 @@ Runs up to and including the first 10-worker run had no failures or retries.
 `capacity-10`, `run_mode=execute`, matching `capacity`, `agent_deadline_seconds=300`.
 Then download the artifacts and read `agent_seconds`, `failure_class` and the
 job start/finish times.
+
+### Independent, read-only replay of downloaded capacity-10 artifacts
+
+After downloading all artifacts from a trusted workflow run into a separate
+directory, use the registered plan, known GitHub run/attempt and exact source
+SHA. This command never contacts the model or GitHub:
+
+~~~bash
+python3 .github/scripts/ocfilo_f2_capacity_audit.py --artifacts /path/to/downloaded-run-artifacts --run-id 39610361972 --run-attempt 1 --sha 03d487448e6fb55d5d40d0d9f826765db135d323
+~~~
+
+The auditor verifies strict evidence JSON, per-file task ownership, ordinary
+non-executable single-file patch shape, run/attempt/SHA consistency and a
+full byte-for-byte-equivalent scheduler replay of the saved DAG-state JSON.
+It intentionally reports both outcome and first_try_all_ten. It CANNOT
+authenticate who supplied the directory, check GitHub's overall workflow
+conclusion, grant publication/merge authority, or promote the operational
+five-worker limit. Cross-check the original run and its CI conclusion
+separately before making any acceptance decision.
 
 ## Real-runner cancel (run 38365148389)
 
