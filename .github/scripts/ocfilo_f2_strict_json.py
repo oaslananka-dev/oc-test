@@ -10,6 +10,16 @@ import math
 
 MAX_JSON_CHARS = 16_384
 
+# The reviewed schema-2 worker result.json root fields. Shared by the F2.3
+# scheduler and F2.4 integrator: neither may silently trust extra keys.
+EVIDENCE_FIELDS = frozenset({
+    "schema_version", "repository", "repository_id", "issue_number",
+    "model", "identity", "allowed_paths", "task_id", "round",
+    "checkout_sha", "idempotency_key", "workflow_run_id", "run_attempt",
+    "worker_outcome", "failure_class", "retryable", "agent_exit_code",
+    "agent_seconds", "deadline_seconds", "scope_verified", "published", "error",
+})
+
 
 def _pairs_unique(pairs):
     result = {}

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from ocfilo_f2_plan import plan as validate_plan, REPO
 from ocfilo_f2_pilot import SHA, validate_evidence
+from ocfilo_f2_strict_json import EVIDENCE_FIELDS, parse_strict_object
 
 # Raise only after a measured 5-worker (then 10-worker) capacity run.
 VALIDATED_CAPACITY = 5  # measured clean: runs 38359600536, 38359780386
@@ -119,7 +120,9 @@ def load_evidence(directory):
     for f in files:
         if f.is_symlink() or f.stat().st_size > MAX_EVIDENCE_BYTES:
             raise ValueError("Unsafe or oversized evidence file")
-        out.append(json.loads(f.read_text(encoding="utf-8")))
+        out.append(parse_strict_object(
+            f.read_text(encoding="utf-8"), EVIDENCE_FIELDS,
+            max_chars=MAX_EVIDENCE_BYTES))
     return out
 
 
