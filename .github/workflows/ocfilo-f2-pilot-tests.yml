@@ -11,6 +11,9 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_capacity_stats.py'
+      - '.github/scripts/test_ocfilo_f2_capacity_stats.py'
+      - 'docs/ocfilo-f2-capacity-10-runs.json'
       - '.github/scripts/ocfilo_f2_capacity_audit.py'
       - '.github/scripts/test_ocfilo_f2_capacity_audit.py'
       - '.github/scripts/ocfilo_f2_diagnostics.py'
@@ -37,6 +40,9 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_capacity_stats.py'
+      - '.github/scripts/test_ocfilo_f2_capacity_stats.py'
+      - 'docs/ocfilo-f2-capacity-10-runs.json'
       - '.github/scripts/ocfilo_f2_capacity_audit.py'
       - '.github/scripts/test_ocfilo_f2_capacity_audit.py'
       - '.github/scripts/ocfilo_f2_diagnostics.py'
@@ -80,6 +86,7 @@ jobs:
           python3 .github/scripts/test_ocfilo_f2_dag.py
           python3 .github/scripts/test_ocfilo_f2_diagnostics.py
           python3 .github/scripts/test_ocfilo_f2_capacity_audit.py
+          python3 .github/scripts/test_ocfilo_f2_capacity_stats.py
           python3 .github/scripts/test_ocfilo_f2_integrate.py
           python3 .github/scripts/test_ocfilo_f2_strict_json.py
       - name: Reject inadvertent runtime authorization
