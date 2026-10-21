@@ -33,11 +33,13 @@ that every capability is enabled in production.
 - [OSV npm lockfile validation](oc-fleet-osv-npm-lockfile.md)
 - [OSV existing-PR publisher](oc-fleet-osv-existing-pr-publisher.md)
 
-## Known readability limitation
+## F2 planning text provenance
 
-The original F2 planning file (`ocfilo-f2.md`) contains 169 Unicode
-replacement characters (`U+FFFD`) in committed Turkish text. Its lost
-characters have **not** been reconstructed or independently recovered.
-Use the other F2 documents for verified later-stage details; track
-restoration under [issue #113](https://github.com/oaslananka-dev/oc-test/issues/113).
-Do not reinterpret this document as proof of current runtime defaults.
+The historical F2 planning file was committed with 169 Unicode replacement
+characters (U+FFFD) and two control characters. No authoritative intact
+original was found in the tracked history. The linked F2.1 document has
+therefore been **editorially rewritten in Turkish**, not faithfully recovered
+byte-for-byte. Its replacement text preserves verifiable F2.1 design
+boundaries, points to independently documented later stages and requires
+human content review under [issue #113](https://github.com/oaslananka-dev/oc-test/issues/113).
+Do not interpret historical plan-only claims as current runtime defaults.
