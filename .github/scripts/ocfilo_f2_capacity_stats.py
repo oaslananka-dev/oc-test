@@ -14,6 +14,14 @@ import math
 from pathlib import Path
 import re
 import statistics
+import stat
+
+# Proposed measurement-cohort rules, not authorization or an SLA.
+MIN_CLEAN_RUNS = 29
+MIN_UTC_DAYS = 5
+MIN_UTC_SIX_HOUR_BINS = 3
+MIN_HOURS_BETWEEN_STARTS = 1
+MAX_WORKER_JOB_WALL_SECONDS = 480
 
 MAX_INPUT_BYTES = 128_000
 TASKS = frozenset(f"f2-cap10-{ch}" for ch in "abcdefghij")
@@ -41,8 +49,10 @@ def _nonstandard(value):
 
 def _read(path):
     p = Path(path)
-    if p.is_symlink() or p.stat().st_size > MAX_INPUT_BYTES:
-        raise ValueError("Unsafe or oversized snapshot")
+    info = p.lstat()
+    # Never open a pipe, device, directory or symbolic link from untrusted input.
+    if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_INPUT_BYTES:
+        raise ValueError("Unsafe or oversized non-regular snapshot")
     data = json.loads(p.read_text(encoding="utf-8"), object_pairs_hook=_pairs,
                       parse_constant=_nonstandard)
     if type(data) is not dict or set(data) != ROOT_KEYS:
@@ -154,6 +164,7 @@ def _run(item):
     return {
         "run_id": rid,
         "run_date": _dt(item["created_at"]).date().isoformat(),
+        "created_at_utc": item["created_at"],
         "source_sha": item["head_sha"],
         "workflow_conclusion": item["workflow_conclusion"],
         "state_job_conclusion": item["state_job_conclusion"],
@@ -174,6 +185,60 @@ def _run(item):
     }
 
 
+def candidate_cohort_precheck(runs):
+    """Conservative metadata-only gate, NEVER production authorization.
+
+    The input snapshot may omit failed runs and cannot prove provider/model,
+    configuration, runner image or artifact bytes. External verification
+    remains mandatory even for a perfect locally simulated dataset.
+    """
+    times = sorted(_dt(r["created_at_utc"]) for r in runs)
+    gaps = [(b-a).total_seconds() for a, b in zip(times, times[1:])]
+    six_hour_bins = {t.hour // 6 for t in times}
+    days = {t.date() for t in times}
+    reasons = []
+    if len(runs) < MIN_CLEAN_RUNS:
+        reasons.append("fewer_than_29_runs")
+    if not all(r["first_try_clean"] for r in runs):
+        reasons.append("nonclean_run_present")
+    if not all(r["artifact_replay"] == "verified" for r in runs):
+        reasons.append("independent_artifact_replay_missing")
+    if len({r["source_sha"] for r in runs}) != 1:
+        reasons.append("mixed_checkout_sha")
+    if len(days) < MIN_UTC_DAYS:
+        reasons.append("insufficient_distinct_utc_days")
+    if len(six_hour_bins) < MIN_UTC_SIX_HOUR_BINS:
+        reasons.append("insufficient_utc_time_block_coverage")
+    if any(g < 3600 * MIN_HOURS_BETWEEN_STARTS for g in gaps):
+        reasons.append("starts_less_than_one_hour_apart")
+    if any(r["job_wall_seconds"]["max"] > MAX_WORKER_JOB_WALL_SECONDS for r in runs):
+        reasons.append("job_wall_time_exceeds_proposed_480s_guardrail")
+    return {
+        "metadata_only_gate_pass": not reasons,
+        "rejection_reasons": reasons,
+        "observed_distinct_utc_days": len(days),
+        "observed_distinct_utc_six_hour_bins": len(six_hour_bins),
+        "requirements": {
+            "minimum_clean_runs": MIN_CLEAN_RUNS,
+            "minimum_distinct_utc_days": MIN_UTC_DAYS,
+            "minimum_distinct_utc_six_hour_bins": MIN_UTC_SIX_HOUR_BINS,
+            "minimum_start_spacing_minutes": 60 * MIN_HOURS_BETWEEN_STARTS,
+            "maximum_worker_job_wall_seconds": MAX_WORKER_JOB_WALL_SECONDS,
+            "exact_checkout_sha_required": True,
+            "all_artifacts_replay_verified": True,
+        },
+        "external_review_still_required": [
+            "original_gh_workflow_and_snapshot_completeness",
+            "original_artifact_download_provenance",
+            "actual_model_cli_runner_and_security_configuration_comparability",
+            "independence_and_representative_time_windows",
+            "user_approval_for_any_live_run_or_operational_promotion",
+        ],
+        "promote_capacity_to_ten_authorized": False,
+        "new_live_runs_authorized": False,
+    }
+
+
 def analyze(data):
     runs = [_run(item) for item in data["runs"]]
     if len({r["run_id"] for r in runs}) != len(runs):
@@ -181,6 +246,7 @@ def analyze(data):
     total = len(runs)
     clean = sum(r["first_try_clean"] for r in runs)
     all_first = [n for r in runs for n in r["first_round_job_seconds"]]
+    cohort_check = candidate_cohort_precheck(runs)
     for r in runs:
         del r["first_round_job_seconds"]
     n90 = math.ceil(math.log(0.05)/math.log(0.9))
@@ -190,6 +256,9 @@ def analyze(data):
         "source": data["source"],
         "metadata_authenticated_by_this_script": False,
         "confidence_bound_requires_iid_comparable_runs": True,
+        "prospective_candidate_cohort_precheck_not_authorization": cohort_check,
+        "historical_clean_runs_with_verified_artifacts": sum(
+            r["first_try_clean"] and r["artifact_replay"] == "verified" for r in runs),
         "overall_workflow_runs": total,
         "first_try_clean_runs": clean,
         "run_level_clean_fraction_observed": clean/total,
