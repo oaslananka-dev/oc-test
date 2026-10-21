@@ -29,6 +29,19 @@ class DocumentationNavigationTests(unittest.TestCase):
             readme.count("](docs/README.md)"), 1,
             "Root README must point to the local docs index exactly once")
 
+    def test_editorial_f2_planning_document_is_valid_utf8_and_readable(self):
+        # Regression for issue #113: source was irreversibly corrupted.
+        target = DOCS / "ocfilo-f2.md"
+        content = target.read_bytes().decode("utf-8", errors="strict")
+        self.assertNotIn("\ufffd", content)
+        self.assertFalse([ch for ch in content if ord(ch) < 32 and ch not in
+                          "\n\r\t"], "Unexpected control character in F2 planning")
+        self.assertIn("Editoryal yeniden yazım", content)
+        self.assertIn("orijinalin birebir restorasyonu", content)
+        self.assertIn("ocfilo_f2_plan.py", content)
+        self.assertIn("execution_authorized=false", content)
+        self.assertIn("F2 yol haritası Issue #10", content)
+
     def test_navigation_files_have_no_replacement_characters(self):
         for path in (ROOT / "README.md", DOCS / "README.md"):
             with self.subTest(path=path.name):
