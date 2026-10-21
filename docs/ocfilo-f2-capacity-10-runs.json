@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "repository": "oaslananka-dev/oc-test",
+  "source": "GitHub Actions job metadata; 2026-10-21; older artifacts unavailable",
+  "runs": [
+    {
+      "run_id": 38360448016,
+      "created_at": "2026-10-13T07:04:54Z",
+      "head_sha": "99cd78f6570cd7708d169c5524efc07534c5a753",
+      "workflow_conclusion": "success",
+      "state_job_conclusion": "success",
+      "artifact_replay": "unavailable",
+      "jobs": [
+        {
+          "task_id": "f2-cap10-a",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:07Z",
+          "completed_at": "2026-10-13T07:05:35Z"
+        },
+        {
+          "task_id": "f2-cap10-b",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:47Z"
+        },
+        {
+          "task_id": "f2-cap10-c",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:43Z"
+        },
+        {
+          "task_id": "f2-cap10-d",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:41Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:10Z",
+          "completed_at": "2026-10-13T07:05:48Z"
+        },
+        {
+          "task_id": "f2-cap10-f",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:44Z"
+        },
+        {
+          "task_id": "f2-cap10-g",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:09:29Z"
+        },
+        {
+          "task_id": "f2-cap10-h",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:36Z"
+        },
+        {
+          "task_id": "f2-cap10-i",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:41Z"
+        },
+        {
+          "task_id": "f2-cap10-j",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:05:06Z",
+          "completed_at": "2026-10-13T07:05:36Z"
+        }
+      ]
+    },
+    {
+      "run_id": 38361074538,
+      "created_at": "2026-10-13T07:11:05Z",
+      "head_sha": "99cd78f6570cd7708d169c5524efc07534c5a753",
+      "workflow_conclusion": "failure",
+      "state_job_conclusion": "failure",
+      "artifact_replay": "unavailable",
+      "jobs": [
+        {
+          "task_id": "f2-cap10-a",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:45Z"
+        },
+        {
+          "task_id": "f2-cap10-b",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:14Z",
+          "completed_at": "2026-10-13T07:11:59Z"
+        },
+        {
+          "task_id": "f2-cap10-c",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:49Z"
+        },
+        {
+          "task_id": "f2-cap10-d",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:51Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 1,
+          "attempt": 1,
+          "state": "failure",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:21:31Z"
+        },
+        {
+          "task_id": "f2-cap10-f",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:20Z",
+          "completed_at": "2026-10-13T07:11:53Z"
+        },
+        {
+          "task_id": "f2-cap10-g",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:52Z"
+        },
+        {
+          "task_id": "f2-cap10-h",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:52Z"
+        },
+        {
+          "task_id": "f2-cap10-i",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:44Z"
+        },
+        {
+          "task_id": "f2-cap10-j",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-13T07:11:15Z",
+          "completed_at": "2026-10-13T07:11:47Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 2,
+          "attempt": 2,
+          "state": "failure",
+          "started_at": "2026-10-13T07:21:41Z",
+          "completed_at": "2026-10-13T07:22:29Z"
+        }
+      ]
+    },
+    {
+      "run_id": 39610361972,
+      "created_at": "2026-10-21T13:42:39Z",
+      "head_sha": "03d487448e6fb55d5d40d0d9f826765db135d323",
+      "workflow_conclusion": "failure",
+      "state_job_conclusion": "success",
+      "artifact_replay": "verified",
+      "jobs": [
+        {
+          "task_id": "f2-cap10-a",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:44:10Z"
+        },
+        {
+          "task_id": "f2-cap10-b",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:43:56Z"
+        },
+        {
+          "task_id": "f2-cap10-c",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:43:55Z"
+        },
+        {
+          "task_id": "f2-cap10-d",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:43:53Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 1,
+          "attempt": 1,
+          "state": "failure",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:53:07Z"
+        },
+        {
+          "task_id": "f2-cap10-f",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:44:09Z"
+        },
+        {
+          "task_id": "f2-cap10-g",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:44:05Z"
+        },
+        {
+          "task_id": "f2-cap10-h",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:43:47Z"
+        },
+        {
+          "task_id": "f2-cap10-i",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:44:08Z"
+        },
+        {
+          "task_id": "f2-cap10-j",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T13:42:48Z",
+          "completed_at": "2026-10-21T13:49:53Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 2,
+          "attempt": 2,
+          "state": "success",
+          "started_at": "2026-10-21T13:53:20Z",
+          "completed_at": "2026-10-21T13:54:39Z"
+        }
+      ]
+    },
+    {
+      "run_id": 39623759336,
+      "created_at": "2026-10-21T15:13:58Z",
+      "head_sha": "29190e689aceb31a86ef9e60e3b3f149daae7e83",
+      "workflow_conclusion": "success",
+      "state_job_conclusion": "success",
+      "artifact_replay": "verified",
+      "jobs": [
+        {
+          "task_id": "f2-cap10-a",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:39Z"
+        },
+        {
+          "task_id": "f2-cap10-b",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:14Z"
+        },
+        {
+          "task_id": "f2-cap10-c",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:17Z"
+        },
+        {
+          "task_id": "f2-cap10-d",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:21:00Z"
+        },
+        {
+          "task_id": "f2-cap10-e",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:21Z"
+        },
+        {
+          "task_id": "f2-cap10-f",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:40Z"
+        },
+        {
+          "task_id": "f2-cap10-g",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:12Z"
+        },
+        {
+          "task_id": "f2-cap10-h",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:14:58Z"
+        },
+        {
+          "task_id": "f2-cap10-i",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:08Z",
+          "completed_at": "2026-10-21T15:15:31Z"
+        },
+        {
+          "task_id": "f2-cap10-j",
+          "round": 1,
+          "attempt": 1,
+          "state": "success",
+          "started_at": "2026-10-21T15:14:07Z",
+          "completed_at": "2026-10-21T15:15:41Z"
+        }
+      ]
+    }
+  ]
+}

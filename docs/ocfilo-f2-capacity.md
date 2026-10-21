@@ -85,6 +85,70 @@ Runs up to and including the first 10-worker run had no failures or retries.
   Until then use 5, or treat a 10-wide run as best effort and expect a possible
   `HALTED` state.
 
+## 21 October 2026: four-run historical reliability analysis
+
+To make capacity decisions reproducible without another model execution,
+read-only GitHub Actions job metadata is preserved in
+docs/ocfilo-f2-capacity-10-runs.json. Recalculate it offline:
+
+    python3 .github/scripts/ocfilo_f2_capacity_stats.py --snapshot docs/ocfilo-f2-capacity-10-runs.json
+
+Metadata was retrieved from the original GitHub runs on 21 October.
+The 13 October artifacts have expired and could not be replayed; their
+results originate from GitHub job conclusions and contemporaneous
+documentation. Both 21 October artifact bundles passed independent
+strict byte-level replay. The snapshot is static; the analyzer cannot
+authenticate its source, dispatch workers or grant capacity authorization.
+
+| Actions run | Date UTC | First round | Retry jobs | Workflow | Max job wall time |
+|---|---|---|---|---|---|
+| 38360448016 | 13 Oct | 10/10 | 0 | SUCCESS | 263 s |
+| 38361074538 | 13 Oct | 9/10 | 1 (failed) | FAILURE | 616 s |
+| 39610361972 | 21 Oct | 9/10 | 1 (succeeded) | FAILURE | 619 s |
+| 39623759336 | 21 Oct | 10/10 | 0 | SUCCESS | 412 s |
+
+Observed: **2/4 clean workflows**, **38/40 first-round successful workers**,
+two first-round timeouts, two retry jobs and three failed job attempts
+(including the failed retry in the 13 October run). Across the 40
+first-round GitHub *worker job wall times*: min 28 s, median 61.5 s,
+nearest-rank p90 263 s, nearest-rank p95 425 s, max 619 s. Job wall time
+includes runner setup/finalization and is NOT exact model response time.
+The median obscures pronounced long-tail latency. These runs span only
+two dates and multiple commits/configurations. Ten worker attempts within
+one run are correlated, NOT forty independent capacity-reliability trials.
+
+### Proposed operational promotion gate — NOT run authorization
+
+1. Preserve validated F2 capacity of five and production dispatcher capacity
+   of four. Existing observations include real failures. No promotion now.
+2. Define a prospective cohort with comparable pinned CLI/model/plan, runner
+   image, security conditions and deadlines. Reset the cohort when a
+   material configuration change occurs; never cherry-pick only successes.
+3. Require **29 consecutive independent clean ten-worker workflows** spread
+   across multiple days and UTC time blocks, never a burst of repeats:
+   all ten succeed on first attempt, zero timeout or retry, exact-owned
+   artifacts independently replay to COMPLETE, original GitHub conclusion
+   SUCCESS, and no paid provider or publication. Failure breaks the streak.
+4. As an engineering guardrail, require all first-round GitHub worker job
+   wall times no more than **480 seconds** with the approved 600-second
+   *agent* deadline. The proposed 120-second difference is not a provider
+   SLA; job wall time includes more than agent time. Do not automatically
+   raise deadlines, quota or worker counts.
+5. At 29/29 independent successful run-level trials, the *one-sided exact
+   95% binomial lower confidence bound* exceeds 90%. For a 95% lower bound,
+   at least **59/59** independent clean runs would be needed. The current
+   four-run observation of 2/4 clean has an illustrative one-sided 95%
+   lower bound of 9.76%, but identical-distribution assumptions DO NOT
+   hold for this mixed historical sample. Even a clean prospective
+   cohort provides no permanent guarantee if quota/provider load changes.
+6. Each future 10-ajan live execution consumes GitHub runner minutes
+   and model quota. **Separate user approval is required for each**
+   additional live experiment. No automatic cadence, hidden test runs,
+   paid fallback, or newly provisioned resources.
+
+This policy is a proposed measurable gate, not a claim that 10-agent
+operational concurrency is already reliable or permission to promote it.
+
 ## How to repeat
 
 `ocfilo F2 Bounded Manual DAG Run` on `main`: `plan=capacity-5` or
