@@ -1,0 +1,58 @@
+name: F2 Verified Python Code Acceptance
+
+on:
+  pull_request:
+    paths:
+      - 'playground/f2/dag/test_code_*.py'
+  push:
+    paths:
+      - 'playground/f2/dag/test_code_*.py'
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: 'Optional exact lowercase commit SHA to validate a previously opened review PR'
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  python-code-five:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      F2_SOURCE_SHA: ${{ inputs.head_sha || github.sha }}
+    steps:
+      - name: Require immutable 40-hex checkout SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$F2_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+      - name: Read-only exact-SHA checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ env.F2_SOURCE_SHA }}
+          persist-credentials: false
+      - name: Require complete reviewed five-file Python scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path('playground/f2/dag')
+          expected = {f'test_code_{part}.py' for part in
+                      ('path', 'digest', 'json', 'run', 'owner')}
+          found = {p.name for p in root.glob('test_code_*.py')}
+          assert found == expected, (sorted(found), sorted(expected))
+          for name in sorted(expected):
+              file = root / name
+              assert file.is_file() and not file.is_symlink()
+              assert file.stat().st_size <= 32768
+              assert not file.stat().st_mode & 0o111
+              compile(file.read_text(encoding='utf-8'), str(file), 'exec')
+          print('FIVE_VALIDATED_PYTHON_SOURCES')
+          PY
+      - name: Execute all five Python validator unittest suites
+        run: python3 -m unittest discover -s playground/f2/dag -p 'test_code_*.py' -v
