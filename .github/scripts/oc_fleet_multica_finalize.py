@@ -37,7 +37,16 @@ def list_for_review(project):
     items = response.get("issues")
     if not isinstance(items, list) or len(items) > 100:
         raise ValueError("Invalid PR review listing")
-    return [i for i in items if i.get("status") == "in_review"]
+    # The auto-finalizer is scoped to the opt-in oc-test pilot only. Do not
+    # re-fetch deliberately manual-review or foreign-repo issues every cycle.
+    # finalize_one still re-reads and fail-closes on the full live issue.
+    return [
+        i for i in items
+        if i.get("status") == "in_review"
+        and isinstance(i.get("metadata"), dict)
+        and i["metadata"].get("fleet_auto_merge") is True
+        and i["metadata"].get("fleet_target_repo") == PILOT_REPO
+    ]
 
 
 def verify_receipt(meta, receipt):
