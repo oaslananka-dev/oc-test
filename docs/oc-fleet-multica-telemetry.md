@@ -167,3 +167,38 @@ or exposes a writable command endpoint.
 Issue #131 tracks the future separately authorized, audited cancellation
 executor and checkpointed redirection. The production OC Fleet dispatcher
 and its worker/job capacity are unchanged.
+
+## Offline cancel admission and audit contract (phase 2 preparation)
+
+oc_fleet_cancel_admission.py is an import-only offline simulator
+supporting Issue #131. It accepts the prior five-minute non-executable
+cancel proposal, an independently fresh GitHub run read, a task-manifest
+receipt verifier, a human approval verifier and an isolated audit DB.
+It enforces exact repository, run, attempt, SHA, registered Multica issue,
+task identity, verified actor and approval-to-proposal binding; expired,
+terminal, forged or contradictory evidence fails closed.
+
+The simulator atomically stores a single simulation_only_no_cancel record
+per deterministic proposal ID (SQLite unique key, IMMEDIATE transaction),
+rejects reuse with another actor/task, and returns
+cancel_requested=false, execution_enabled=false. The audit file is
+separate from the immutable OIDC telemetry database, and is opened under
+the user's restrictive permission mask. Neither callback is installed
+with an actual privileged identity source: test callbacks are synthetic,
+NOT proof of production authorization. This module deliberately provides
+no CLI, GitHub POST/cancel operation, approval provider, cancellation
+token, native Multica trigger or live control endpoint.
+
+Before a production executor could be approved, a separately reviewed
+system must authenticate the actual operator, retrieve independently
+trusted task/run manifests, use the minimal GitHub Actions write scope,
+repeat the exact-state check at action time and reconcile both 202
+"cancel accepted" and 409 "already terminal / conflict" outcomes
+without ever treating acceptance as confirmed cancellation. A durable
+uncertain-outcome state and actor-visible incident reconciliation must
+be designed before issuing any live write, to avoid accidentally
+double-cancelling a rerun or incorrectly reporting success. GitHub's
+official REST contract:
+https://docs.github.com/en/rest/actions/workflow-runs
+
+No such live operation is enabled by this phase.
