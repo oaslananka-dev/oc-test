@@ -132,3 +132,38 @@ instructions. Reject unrecognized actions, wrong identity, expanded
 write scope, retry/cost limits or unapproved production operations.
 Telemetry must never cause an automatic merge, deployment,
 paid-model switch, Multica Autopilot trigger or permission workaround.
+
+## Verified supervisor state and cancellation proposal (phase 1.5)
+
+On the authorized VPS or other existing trusted device, run:
+
+    python3 oc_fleet_supervisor.py --run 38731018050 --limit 8
+    python3 oc_fleet_supervisor.py --recent 3
+
+This composes the phase-1 local, read-only telemetry view with a **fresh
+read-only GitHub Actions REST API call**. The authenticated operator's
+existing GitHub CLI credential must have read access. The adapter fails
+closed unless the REST response matches the exact numeric run/attempt,
+source repository, worker workflow, workflow_dispatch event, main branch
+and full commit SHA. Only GitHub's own status and conclusion are reported
+as the verified authoritative workflow state. A telemetry step_start does
+not mean the job is still active, and a progress gap cannot prove a hang.
+If GitHub is unreachable or the run was retried on a different attempt,
+the read fails without returning a misleading old status.
+
+For a currently active, exactly verified workflow, the command
+
+    python3 oc_fleet_supervisor.py --run RUN_ID --propose-cancel
+
+outputs **non-executable** JSON including repo/run/attempt/head SHA,
+registered Multica issue, an idempotent proposal ID and a five-minute
+review expiration. It does not send a GitHub cancellation request,
+create a permission grant, persist an approval or validate the worker
+manifest's task ID. The proposal says executable=false and explicitly
+lists the further checks required. For a completed or mismatched workflow
+the proposal is rejected. This CLI never receives a cancellation token
+or exposes a writable command endpoint.
+
+Issue #131 tracks the future separately authorized, audited cancellation
+executor and checkpointed redirection. The production OC Fleet dispatcher
+and its worker/job capacity are unchanged.
