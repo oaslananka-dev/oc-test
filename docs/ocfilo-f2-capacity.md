@@ -195,6 +195,91 @@ paid fallback or new infrastructure is authorized by this change.
 No further workflow dispatch, scheduled monitoring, background model use,
 paid fallback or new infrastructure is authorized by this change.
 
+## 21 October 2026: resource feasibility for prospective 29-run cohort
+
+A separate bounded read-only GitHub Actions resource snapshot records the four
+historical real-run job durations, standard Ubuntu runner label and currently
+available artifact ZIP sizes:
+docs/ocfilo-f2-capacity-10-resources.json. Regenerate a scenario report with
+no network or model calls:
+
+    python3 .github/scripts/ocfilo_f2_capacity_resources.py --snapshot docs/ocfilo-f2-capacity-10-resources.json --planned-runs 29
+
+| Manual run | Executed job time sum | Per-job rounded minutes (reference only) | Artifact ZIP bytes available |
+|---|---:|---:|---:|
+| 38360448016 | 10.28 runner-min | 21 | Unavailable/expired |
+| 38361074538 | 16.92 runner-min | 28 | Unavailable/expired |
+| 39610361972 | 29.12 runner-min | 43 | 14,833 |
+| 39623759336 | 19.00 runner-min | 31 | 13,669 |
+
+Executed job time is the **sum across concurrently executing jobs**, not
+workflow wall-clock duration. Jobs skipped by GitHub are not charged any
+execution time in this estimate (some API entries report reversed one-second
+timestamps for skipped jobs). Per-job rounded minutes are reference-only,
+not invoice data for this public repository.
+
+Observed mean: **18.83 runner-minutes/run**. A 29-run cohort would be about
+**546 runner-minutes** at the historical observed mean, or **844
+runner-minutes** if every run were as heavy as the slowest recorded one.
+These are extrapolated *resource use*, not guaranteed runtime or bill.
+There are **290 first-round worker sessions** for 29 runs; allowing one
+bounded retry on every worker yields a theoretical maximum of **580 worker
+sessions**. A session may issue multiple provider inference requests; those
+counts cannot be extrapolated from GitHub job metadata. A 29-run cohort must
+span at least five distinct UTC dates and multiple time blocks; it is not
+a single 29-run batch.
+
+**Current cost boundaries (must be rechecked before every approved run):**
+
+- The repository was **public** and used only standard GitHub-hosted
+  ubuntu-24.04 runners in the measured workflows. GitHub currently lists
+  these runner minutes as free for public repositories:
+  https://docs.github.com/en/billing/concepts/product-billing/github-actions
+  Larger runners are chargeable, including for public repositories.
+- OpenCode currently lists Big Pickle as free for input/output tokens:
+  https://opencode.ai/v2/docs/console/models/
+  This is **not** an unlimited-use, rate-limit, duration or future-pricing
+  guarantee. Keep the exact opencode/big-pickle selection; fail closed if
+  unavailable or paid, with NO paid fallback or auto-recharge.
+- The two unexpired GitHub artifact ZIP batches total just 13.7–14.8 KB per
+  run. At the largest observed ZIP size, 29 similarly small runs would
+  use about **0.41 MiB** of stored artifacts, assuming the same plan/output
+  size. This is a *scenario*, not a verified storage ceiling. The workflow
+  retains artifacts for **7 days**; Actions artifact storage is pooled with
+  GitHub Packages and may create charges if an account's storage budget is
+  exceeded. Historical expired artifacts must not be treated as 0-byte runs.
+- Free-provider traffic can be throttled and may use submitted data for model
+  improvement. Only the bounded synthetic, nonsecret capacity-manifest
+  content should be used; do not switch to private source code or new
+  providers without an explicit separate decision.
+
+**Practical gated alternative to an up-front 29-run commitment:**
+
+1. **Preflight each time**: manually reconfirm public repo, standard runner,
+   current OpenCode model price/availability, privacy, artifact allowance,
+   run SHA, CI permissions and no overlapping F2 run. If any check fails,
+   do not dispatch.
+2. **Stage A (3 prospective runs)**: if separately approved one by one,
+   collect three comparable first-try-clean runs across distinct UTC days
+   and bins, with independently replayed artifacts and job wall time at most
+   480 s. Stop and investigate on the first failure/timeout or cost concern.
+3. **Stage B (up to 10)**: only after reviewing Stage A evidence and explicit
+   approval, extend the same pinned cohort to 10 total runs. A changed
+   model/runner/plan resets the statistical cohort.
+4. **Stage C (up to 29)**: consider the full 29 independent clean run-level
+   acceptance only if earlier stages are consistently clean, practical and
+   separately approved. Never auto-dispatch the remaining runs. The
+   confidence calculation remains conditional on comparable independent
+   trials; passing the 29-run local check STILL does not grant production
+   capacity promotion.
+
+Given observed **2/4** clean historical workflows and the lack of a current
+operational need for ten production workers, the lower-cost/default choice
+is to **retain validated F2=5 and production Fleet=4**, using 10 workers only
+as approved manual sandbox experiments. No recurring schedule, paid model,
+background job, new resources or production promotion follows from this
+analysis.
+
 ## How to repeat
 
 `ocfilo F2 Bounded Manual DAG Run` on `main`: `plan=capacity-5` or
