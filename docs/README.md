@@ -39,5 +39,5 @@ The original F2 planning file (`ocfilo-f2.md`) contains 169 Unicode
 replacement characters (`U+FFFD`) in committed Turkish text. Its lost
 characters have **not** been reconstructed or independently recovered.
 Use the other F2 documents for verified later-stage details; track
-restoration under [issue #111](https://github.com/oaslananka-dev/oc-test/issues/111).
+restoration under [issue #113](https://github.com/oaslananka-dev/oc-test/issues/113).
 Do not reinterpret this document as proof of current runtime defaults.
