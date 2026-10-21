@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Fail-closed matching of a CI completion receipt against a native run identity.
+"""Fail-closed comparison of receipt fields to an expected run identity.
 
-A worker receipt is only trustworthy when it carries exactly the three fields
-that pin it to one GitHub Actions run: the run id, the run attempt and the
-head commit SHA. This module answers a single question -- "does this receipt
-prove the identity I expected?" -- and answers it conservatively: any missing
-or extra field, any non-integer counter, any malformed SHA, any mismatch, or
-any wrong input type yields False instead of an exception.
+This pure predicate compares run ID, run attempt and commit SHA. It does NOT
+authenticate the receipt, attest a GitHub Actions origin or prove artifact
+provenance. A trusted consumer must separately verify original GitHub Actions
+run/attempt/SHA and artifact contents. A locally fabricated receipt containing
+matching fields will also return True.
 
 Standard library only. No filesystem, network or subprocess access.
 """
@@ -31,7 +30,10 @@ def _is_commit_sha(value):
 
 
 def matches_run_identity(receipt, run_id, run_attempt, head_sha):
-    """Return True only if receipt proves the expected run identity.
+    """Return True only if receipt fields match an expected run identity.
+
+    This is field equality, not authentication or proof of GitHub origin.
+    The caller must verify the trusted source and artifact independently.
 
     The receipt must be a mapping holding exactly the keys ``run_id``,
     ``run_attempt`` and ``head_sha``. Both counters must be integers greater
@@ -76,6 +78,13 @@ class MatchesRunIdentityTests(unittest.TestCase):
     def test_valid_receipt_matches_expected_identity(self):
         self.assertIs(matches_run_identity(
             self.receipt(), self.RUN_ID, self.ATTEMPT, self.SHA), True)
+
+    def test_fabricated_matching_receipt_is_not_origin_proof(self):
+        """Locally made matching fields pass; provenance needs a trusted source."""
+        constructed = {"run_id": self.RUN_ID, "run_attempt": self.ATTEMPT,
+                       "head_sha": self.SHA}
+        self.assertTrue(matches_run_identity(
+            constructed, self.RUN_ID, self.ATTEMPT, self.SHA))
 
     def test_missing_field_is_rejected(self):
         for field in ("run_id", "run_attempt", "head_sha"):

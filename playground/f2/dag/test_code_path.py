@@ -28,6 +28,10 @@ Public API
     10. the last segment contains a dot, so the path names a file rather than
         a directory.
 
+Every ASCII C0 (U+0000 through U+001F) and DEL (U+007F) control
+character is also rejected, including LF, CR, TAB and ESC. These
+characters are unsafe in filenames that may enter logs or receipts.
+
 Run the test suite with::
 
     python3 -m unittest discover -s playground/f2/dag -p test_code_path.py
@@ -68,6 +72,11 @@ def is_safe_relative_path(value):
 
     # 3./4. No NUL bytes, no backslashes.
     if NUL in value or BACKSLASH in value:
+        return False
+
+    # Also reject all C0/DEL control characters (not just NUL); disjoint
+    # ownership checking already applies this boundary.
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in value):
         return False
 
     # 5. Relative paths only.
@@ -139,6 +148,13 @@ class IsSafeRelativePathTests(unittest.TestCase):
         ):
             with self.subTest(value=value):
                 self.assertFalse(is_safe_relative_path(value))
+
+    def test_rejects_ascii_c0_and_del_controls(self):
+        """No control character may occur in a workspace path."""
+        for code in (*range(0x20), 0x7F):
+            with self.subTest(code=code):
+                unsafe = "playground/f2/dag/name" + chr(code) + ".txt"
+                self.assertFalse(is_safe_relative_path(unsafe))
 
     def test_rejects_non_string_values(self):
         """Only ``str`` instances are accepted."""
