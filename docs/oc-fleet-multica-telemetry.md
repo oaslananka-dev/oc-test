@@ -90,3 +90,45 @@ GitHub Actions remains the source of truth for terminal job state and CI.
 5. Roll out to real tasks only after idempotence, outage and latency tests.
 
 The pilot HTTPS ingress was validated before enabling Doppler's telemetry URL.
+
+## Read-only supervisor observation (phase 1)
+
+An operator or future manager agent with an existing authorized device
+connection can query the VPS's local SQLite evidence without obtaining
+Multica or GitHub write credentials:
+
+    python3 oc_fleet_observe.py --recent 10
+    python3 oc_fleet_observe.py --run 38731018050 --attempt 1 --limit 20
+
+The JSON output is schema-versioned and read only (SQLite mode=ro,
+query_only=ON). It includes exact GitHub run/attempt and registered
+Multica issue identities, bounded counts, a last-event observation
+label, approved tool names/states and numeric usage fields. No raw JSONL,
+prompt, source text, command arguments, filenames, environment contents,
+tokens or comment identifiers are returned. A missing database is never
+created. Run comments and their last update are distinguishable from actual
+worker status; github_run_state=not_checked means the caller MUST
+separately retrieve authoritative GitHub Actions status and artifact receipts.
+
+This is NOT a network listener, a Multica native execution, an OpenCode
+session or a remote-control endpoint. Do not use a last-event type to
+classify a worker as hung, running or complete: the current telemetry
+database has no per-event receipt timestamp, and ingestion can be delayed.
+If source evidence is stale, report unknown rather than guessing.
+The VPS account permissions protect this local inspection boundary; any
+future network-facing manager API needs its own narrow authentication,
+authorization, identity scoping, per-run audit and request rate limits.
+
+### Later: safe intervention contract (NOT ENABLED)
+
+A manager should first propose cancel, pause_at_checkpoint or
+redirect_at_checkpoint tied to verified repository, run, attempt, head_sha,
+task_id and an operator-defined maximum budget. GitHub run cancellation
+can be supported through a separate least-privilege control plane AFTER
+an explicit approval and independent end-to-end tests. Pause and redirect
+require an actual session/checkpoint-capable agent adapter; the current
+isolated OpenCode standalone task cannot safely accept live free-text
+instructions. Reject unrecognized actions, wrong identity, expanded
+write scope, retry/cost limits or unapproved production operations.
+Telemetry must never cause an automatic merge, deployment,
+paid-model switch, Multica Autopilot trigger or permission workaround.
