@@ -81,6 +81,30 @@ class CompleteTests(unittest.TestCase):
             [{"state":"APPROVED"}],[{"body":"Please fix"}],[]]):
             self.assertFalse(finish.comments_clear(finish.PILOT_REPO,60))
 
+    def test_review_list_skips_manual_and_foreign_repo_without_refetch(self):
+        valid = ISSUE
+        manual = {**ISSUE, "identifier": "OAS-31",
+                  "metadata": {**META, "fleet_auto_merge": False,
+                               "fleet_target_repo": "oaslananka/adxl355"}}
+        wrong_repo = {**ISSUE, "identifier": "OAS-32",
+                      "metadata": {**META, "fleet_target_repo": "oaslananka/adxl355"}}
+        wrong_status = {**ISSUE, "identifier": "OAS-33", "status": "done"}
+        payload = {"issues": [manual, wrong_repo, valid, wrong_status],
+                   "has_more": False}
+        with patch.object(finish, "run", return_value=json.dumps(payload)):
+            rows = finish.list_for_review(PROJECT)
+        self.assertEqual([row["identifier"] for row in rows], ["OAS-16"])
+
+    def test_manual_review_does_not_trigger_finalize_lookup(self):
+        manual = {**ISSUE, "identifier": "OAS-31",
+                  "metadata": {**META, "fleet_auto_merge": False}}
+        payload = {"issues": [manual], "has_more": False}
+        with patch.object(finish, "run", return_value=json.dumps(payload)), \
+                patch.object(finish, "finalize_one") as finalize:
+            self.assertEqual(finish.poll(PROJECT, True, lambda _: Path("/unused")),
+                             "empty_or_waiting")
+            finalize.assert_not_called()
+
     def test_not_explicitly_opted_in_no_write(self):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/"receipt.json";path.write_text(json.dumps(RECEIPT))
