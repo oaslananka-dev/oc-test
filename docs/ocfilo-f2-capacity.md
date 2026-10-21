@@ -66,6 +66,26 @@ Runs up to and including the first 10-worker run had no failures or retries.
   They do not change the fixed model, capacity, deadline, retry allowance,
   credentials, or fail-closed artifact checks. Cap 5 remains validated.
 
+### Recovery workflow conclusion correction (offline-only)
+
+The historical run #39610361972 remains a GitHub FAILURE and is NOT
+retrospectively reclassified. Its first retryable worker failure and the
+expected nonzero exit from finalize both made the round job fail, even
+though a later retry completed the DAG. The reusable round workflow now
+uses step-level continue-on-error ONLY on those two steps. GitHub keeps
+the actual model error in steps.opencode.outcome=failure; finalize retains
+FAILED/TIMEOUT evidence for the next scheduler round. The artifact upload
+still fails if nothing was produced. Setup, scope checks, round planning and
+the required final DAG state retain strict failures.
+
+Only the final state with --require-complete may make an executing DAG
+workflow green; exhausted retries, bad or missing evidence, failed artifact
+upload, and cancellation must not be silently accepted. This change has
+offline workflow/scheduler regression coverage ONLY: its GitHub
+job-conclusion behavior has NOT yet been revalidated on a new live run.
+It does not alter the 29 first-try-clean independent-run criterion for
+capacity-10 promotion, nor authorize running a new model experiment.
+
 ## Decisions
 
 - **Cap 5 is validated** (`VALIDATED_CAPACITY = 5`) after two clean 5-worker

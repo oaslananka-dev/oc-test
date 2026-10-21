@@ -118,6 +118,10 @@ jobs:
       - name: Run ONE scoped OpenCode task under a hard deadline
         if: inputs.run_mode == 'execute'
         id: opencode
+        # Model failures remain steps.opencode.outcome=failure for signed-off
+        # evidence and retry classification. Final DAG state, not a transient
+        # worker step, decides whether the overall run has recovered.
+        continue-on-error: true
         timeout-minutes: 16
         shell: bash
         run: |
@@ -143,6 +147,11 @@ jobs:
           exit "$code"
       - name: Produce per-task bounded non-publishing evidence
         if: always() && steps.prepare.outcome == 'success'
+        # finalize validates and persists FAILED/TIMEOUT result.json before it
+        # raises WorkerError. Allow its recorded failure to reach later rounds,
+        # but the mandatory upload must still succeed and the final DAG state
+        # with --require-complete remains the authoritative pass/fail gate.
+        continue-on-error: true
         shell: bash
         env:
           F2_AGENT_STEP: ${{ steps.opencode.outcome }}
