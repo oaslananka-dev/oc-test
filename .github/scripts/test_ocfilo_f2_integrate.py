@@ -220,6 +220,22 @@ class ProvenanceTests(unittest.TestCase):
         fx.write("f2-dag-audit", evidence("f2-dag-audit", "f" * 40))
         self.refuse(fx)
 
+    def test_duplicate_json_evidence_keys_are_refused_before_integration(self):
+        fx = Fixture(self)
+        d = fx.art / fx.dirname("f2-dag-audit")
+        original = (d / "result.json").read_text()
+        for mutation in (
+            original.replace('"task_id": "f2-dag-audit"',
+                             '"task_id": "f2-dag-audit", "task_id": "f2-dag-audit"'),
+            original.replace('"published": false',
+                             '"published": false, "extra_root_key": 1'),
+            original.replace('"published": false', '"published": NaN'),
+        ):
+            with self.subTest(mutation=mutation[-65:]):
+                (d / "result.json").write_text(mutation)
+                self.refuse(fx, branch="f2-integration/invalid-json")
+        self.assertEqual(git(fx.repo, "status", "--porcelain"), "")
+
     def test_tampered_evidence(self):
         for key, value in (("published", True), ("scope_verified", False),
                            ("idempotency_key", "0" * 64), ("model", "paid/model"),

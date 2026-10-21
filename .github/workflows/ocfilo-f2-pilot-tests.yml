@@ -11,6 +11,8 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_strict_json.py'
+      - '.github/scripts/test_ocfilo_f2_strict_json.py'
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_ocfilo_f2_integrate.py'
@@ -31,6 +33,8 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_strict_json.py'
+      - '.github/scripts/test_ocfilo_f2_strict_json.py'
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_ocfilo_f2_integrate.py'
@@ -67,6 +71,7 @@ jobs:
           python3 .github/scripts/test_ocfilo_f2_sched.py
           python3 .github/scripts/test_ocfilo_f2_dag.py
           python3 .github/scripts/test_ocfilo_f2_integrate.py
+          python3 .github/scripts/test_ocfilo_f2_strict_json.py
       - name: Reject inadvertent runtime authorization
         shell: bash
         run: |

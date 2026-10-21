@@ -19,6 +19,7 @@ import ocfilo_f2_dag as dag
 import ocfilo_f2_pilot as pilot
 from ocfilo_f2_plan import plan as validate_plan
 from ocfilo_f2_sched import schedule
+from ocfilo_f2_strict_json import parse_strict_object
 from oc_fleet_identity import validate_local_identity, verify_commit
 
 WORKFLOW_PATH = ".github/workflows/ocfilo-f2-dag-run.yml"
@@ -26,6 +27,15 @@ ARTIFACT = re.compile(r"ocfilo-f2-(\d+)-(\d+)-r(\d+)-([a-z0-9][a-z0-9-]{1,48})\Z
 BRANCH = re.compile(r"f2-integration/[a-z0-9][a-z0-9._-]{0,60}\Z")
 TASK_FILES = {"result.json", "changes.patch"}
 MAX_EVIDENCE_BYTES = 16384
+# All schema-2 evidence keys plus the optional documented failure description.
+# Do not silently expand the trust contract with unrecognized JSON keys.
+EVIDENCE_FIELDS = frozenset({
+    "schema_version", "repository", "repository_id", "issue_number",
+    "model", "identity", "allowed_paths", "task_id", "round",
+    "checkout_sha", "idempotency_key", "workflow_run_id", "run_attempt",
+    "worker_outcome", "failure_class", "retryable", "agent_exit_code",
+    "agent_seconds", "deadline_seconds", "scope_verified", "published", "error",
+})
 HUNK = re.compile(r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
 
 
@@ -99,7 +109,9 @@ def _load(art_dir, tasks, expected, sha, run_id, attempt):
             raise ValueError(f"{d.name}: unexpected artifact contents")
         if files["result.json"].stat().st_size > MAX_EVIDENCE_BYTES:
             raise ValueError(f"{d.name}: oversized evidence")
-        ev = json.loads(files["result.json"].read_text(encoding="utf-8"))
+        ev = parse_strict_object(
+            files["result.json"].read_text(encoding="utf-8"),
+            EVIDENCE_FIELDS, max_chars=MAX_EVIDENCE_BYTES)
         pilot.validate_evidence(ev, expected)
         if ((ev["workflow_run_id"], ev["run_attempt"], ev["round"], ev["task_id"])
                 != (run, att, rnd, tid) or run != run_id or att != attempt
