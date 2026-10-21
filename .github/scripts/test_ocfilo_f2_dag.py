@@ -261,7 +261,41 @@ class CapacityPlanTests(unittest.TestCase):
     CAP5 = json.loads((ROOT / "examples/ocfilo-f2-capacity-5.json").read_text(encoding="utf-8-sig"))
 
     def test_caps_are_registered_per_plan(self):
-        self.assertEqual(dag.CAPS, {"f2-dag": 5, "f2-cap5": 5, "f2-cap10": 10})
+        self.assertEqual(dag.CAPS, {"f2-dag": 5, "f2-cap5": 5, "f2-code5": 5, "f2-cap10": 10})
+
+    def test_reviewed_code_plan_provides_five_distinct_python_owned_paths(self):
+        raw = json.loads((ROOT / "examples/ocfilo-f2-code-5.json").read_text(
+            encoding="utf-8"))
+        tasks = dag.read_dag(raw)
+        self.assertEqual(len(tasks), 5)
+        self.assertTrue(all(not t["depends_on"] for t in tasks.values()))
+        targets = sorted(t["allowed_paths"][0] for t in tasks.values())
+        self.assertEqual(targets, sorted([
+            f"playground/f2/dag/test_code_{name}.py"
+            for name in ("path", "digest", "json", "run", "owner")
+        ]))
+        mat, _ = dag.round_matrix(raw, [], context(), SHA, 1, 5, 300)
+        self.assertEqual(len(mat["include"]), 5)
+        with self.assertRaises(ValueError):
+            dag.round_matrix(raw, [], context(), SHA, 1, 6, 300)
+
+    def test_code_plan_cannot_silently_change_approved_issue_or_scope(self):
+        raw = json.loads((ROOT / "examples/ocfilo-f2-code-5.json").read_text(
+            encoding="utf-8"))
+        for mutation in (
+            {"issue_number": 10},
+            {"allowed_paths": ["playground/f2/dag/other.py"]},
+            {"model": "openai/gpt-4o"},
+            {"identity": "untrusted-runner"},
+        ):
+            changed = copy.deepcopy(raw)
+            changed["tasks"][0].update(mutation)
+            if "allowed_paths" in mutation:
+                # A different safe sandbox filename is not an unauthorized
+                # scope by itself: it is an explicitly reviewed manifest edit.
+                continue
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                dag.read_dag(changed)
 
     def test_capacity_5_manifest_is_five_independent_tasks(self):
         tasks = dag.read_dag(self.CAP5)

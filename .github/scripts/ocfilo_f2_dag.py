@@ -21,6 +21,7 @@ from ocfilo_f2_sched import (MAX_EVIDENCE, load_evidence, schedule,
 DAG_PLANS = {
     "dag-pilot": ("examples/ocfilo-f2-dag-pilot.json", "f2-dag", VALIDATED_CAPACITY),
     "capacity-5": ("examples/ocfilo-f2-capacity-5.json", "f2-cap5", 5),
+    "code-5": ("examples/ocfilo-f2-code-5.json", "f2-code5", 5),
     "capacity-10": ("examples/ocfilo-f2-capacity-10.json", "f2-cap10", 10),
 }
 CAPS = {plan_id: cap for _, plan_id, cap in DAG_PLANS.values()}
@@ -35,7 +36,8 @@ def read_dag(raw, plan_id=None):
     tasks = {}
     for item in raw["tasks"]:
         paths = item["allowed_paths"]
-        if (item.get("issue_number") != 10
+        issue_bound_to_plan = 115 if raw["plan_id"] == "f2-code5" else 10
+        if (item.get("issue_number") != issue_bound_to_plan
                 or item["model"] != pilot.MODEL
                 or item["agent"] != "build"
                 or item["profile"] != "base"

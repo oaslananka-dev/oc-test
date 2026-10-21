@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "plan_id": "f2-code5",
+  "repository": "oaslananka-dev/oc-test",
+  "run_mode": "plan-only",
+  "max_parallel": 5,
+  "tasks": [
+    {
+      "task_id": "f2-code5-path",
+      "prompt": "Create a self-contained executable stdlib-only Python 3 module at playground/f2/dag/test_code_path.py. Define is_safe_relative_path(value) -> bool for POSIX workspace paths. Accept strings only, nonempty, relative, starting with playground/, filenames only (last segment must contain dot); reject absolute paths, backslashes, NUL, empty/dot/dotdot segments and hidden components. Include unittest.TestCase with >=5 positive/negative tests, runnable with python3 -m unittest discover -s playground/f2/dag -p test_code_path.py. Never read/write any file, run commands, import other modules from playground, or modify other paths. Pure stdlib only.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/test_code_path.py"
+      ],
+      "depends_on": [],
+      "issue_number": 115
+    },
+    {
+      "task_id": "f2-code5-digest",
+      "prompt": "Create self-contained stdlib-only Python 3 module playground/f2/dag/test_code_digest.py. Define verify_sha256(data, expected_hex) -> bool; accept bytes and only 64 lowercase hex chars for expected_hex, compute SHA-256 and use hmac.compare_digest on 64-character digests. Reject nonbytes, invalid digest formats, wrong digests and bool/numeric digest. Include unittest.TestCase with >=5 tests including known hash for b\"abc\", wrong content, uppercase digest, malformed digest, wrong type. No network/IO/subprocess, modify only this file.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/test_code_digest.py"
+      ],
+      "depends_on": [],
+      "issue_number": 115
+    },
+    {
+      "task_id": "f2-code5-json",
+      "prompt": "Write self-contained stdlib Python3 module playground/f2/dag/test_code_json.py. Define parse_strict_object(raw: str, allowed_keys: frozenset[str]) -> dict that parses a strict JSON object; reject duplicate keys (object_pairs_hook), reject NaN/Infinity (parse_constant), reject root list/scalar, unknown keys, non-string input, and excessively long text (>8192 chars). Raise ValueError on rejected input, accept valid empty dictionary. Include unittest.TestCase with >=6 positive/negative tests, no network/file IO, do not touch other files.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/test_code_json.py"
+      ],
+      "depends_on": [],
+      "issue_number": 115
+    },
+    {
+      "task_id": "f2-code5-run",
+      "prompt": "Write stdlib-only Python3 module playground/f2/dag/test_code_run.py. Define matches_run_identity(receipt, run_id, run_attempt, head_sha) -> bool. Expected receipt dictionary fields exactly run_id, run_attempt, head_sha; require int not bool run_id>0 and attempt>0, 40-character lowercase hexadecimal SHA, and exact equality with supplied expected values; reject missing/extra fields, bools/floats, uppercase hex, SHA mismatch, attempt mismatch and wrong inputs by returning False. Include unittest.TestCase with >=6 tests, no filesystem/network/subprocess and modify only this file.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/test_code_run.py"
+      ],
+      "depends_on": [],
+      "issue_number": 115
+    },
+    {
+      "task_id": "f2-code5-owner",
+      "prompt": "Write stdlib-only Python3 module playground/f2/dag/test_code_owner.py. Define scopes_disjoint(scopes: dict[str, list[str]]) -> bool. Accept mapping nonempty task IDs to nonempty path lists, reject non-string paths, absolute paths, backslashes, empty/dot/dotdot segments and any case-insensitive duplicate path across or within tasks. Reject nested collisions e.g. playground/a and playground/a/b. Valid distinct POSIX-relative playground/ file paths should pass. Include unittest.TestCase with >=6 positive/negative tests including cross-agent collision, casefold duplicates, traversal, malformed containers. Pure stdlib, no network/IO/subprocess, only own file.",
+      "model": "opencode/big-pickle",
+      "agent": "build",
+      "profile": "base",
+      "identity": "actions-readonly",
+      "allowed_paths": [
+        "playground/f2/dag/test_code_owner.py"
+      ],
+      "depends_on": [],
+      "issue_number": 115
+    }
+  ]
+}
