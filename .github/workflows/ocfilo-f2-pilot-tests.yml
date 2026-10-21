@@ -11,6 +11,8 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_diagnostics.py'
+      - '.github/scripts/test_ocfilo_f2_diagnostics.py'
       - '.github/scripts/ocfilo_f2_strict_json.py'
       - '.github/scripts/test_ocfilo_f2_strict_json.py'
       - '.github/scripts/oc_fleet_identity.py'
@@ -33,6 +35,8 @@ on:
       - '.github/scripts/ocfilo_f2_dag.py'
       - '.github/scripts/test_ocfilo_f2_dag.py'
       - '.github/scripts/ocfilo_f2_integrate.py'
+      - '.github/scripts/ocfilo_f2_diagnostics.py'
+      - '.github/scripts/test_ocfilo_f2_diagnostics.py'
       - '.github/scripts/ocfilo_f2_strict_json.py'
       - '.github/scripts/test_ocfilo_f2_strict_json.py'
       - '.github/scripts/oc_fleet_identity.py'
@@ -70,6 +74,7 @@ jobs:
           python3 .github/scripts/test_ocfilo_f2_pilot.py
           python3 .github/scripts/test_ocfilo_f2_sched.py
           python3 .github/scripts/test_ocfilo_f2_dag.py
+          python3 .github/scripts/test_ocfilo_f2_diagnostics.py
           python3 .github/scripts/test_ocfilo_f2_integrate.py
           python3 .github/scripts/test_ocfilo_f2_strict_json.py
       - name: Reject inadvertent runtime authorization
