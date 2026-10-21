@@ -1,0 +1,33 @@
+ocfilo F2 capacity-5 task d: observations about the repository GitHub Actions workflows
+=========================================================================================
+
+1. Read-only by default; only two workflows ask for more.
+   All 26 workflows under .github/workflows/ declare `permissions: contents: read`, and
+   25 of them check out with `persist-credentials: false` (the exception,
+   oc-fleet-config-check.yml, never checks out the repo at all). Elevated rights are
+   limited to exactly two files: oc-fleet-publish.yml mints a repository-scoped
+   GitHub App token (contents: write, pull-requests: write) behind the
+   `fleet-publisher` environment, and oc-fleet-worker.yml requests `id-token: write`
+   for OIDC telemetry. Everything else, including the F1/F2 workers, only produces
+   local patches and uploaded artifacts - no push, PR or merge.
+
+2. Nothing runs on every commit; triggers are manual or narrowly path-filtered.
+   22 of the 26 workflows can be started with workflow_dispatch, while only 13 add a
+   `push` trigger and 7 add a `pull_request` trigger - and every one of those uses a
+   `paths:` filter pinned to specific scripts, docs or workflow files. The result is
+   that ordinary CI surface is tiny (for example ocfilo-ci.yml runs only when
+   playground/f1-smoke.txt changes). Eight workflows additionally refuse to start
+   unless `github.repository == 'oaslananka-dev/oc-test'` and the ref is
+   `refs/heads/main`, and only 3 workflows declare a `concurrency` group.
+
+3. First-party actions are pinned by tag, third-party actions by commit SHA, and
+   every job is bounded and sandboxed.
+   GitHub-owned actions use major tags (actions/checkout@v5 at 32 call sites,
+   actions/setup-node@v5, actions/upload-artifact@v6, actions/download-artifact@v7),
+   whereas the external actions are pinned to immutable commit SHAs
+   (dopplerhq/cli-action@4819d80, astral-sh/setup-uv@c18668a). All 30 jobs run on
+   ubuntu-24.04 with an explicit timeout-minutes, most at 5 minutes. The F2 DAG
+   workflow is the only fan-out: it runs up to 6 sequential rounds with a matrix of
+   at most 10 workers, each executing exactly one scoped OpenCode task under a hard
+   `timeout` deadline while asserting `publication_allowed is False`, so results are
+   evidence-only and are never combined or published automatically.

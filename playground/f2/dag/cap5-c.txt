@@ -1,0 +1,32 @@
+Observations on how repository documentation is organized
+
+1. Docs live in one flat directory. All 20 Markdown files sit directly in docs/ with
+   no subdirectories and no index or table of contents. Family membership is carried
+   only by the filename prefix: 16 "oc-fleet-*" files (fleet worker, dispatch,
+   publisher, OSV, repair, telemetry, tool profiles) and 4 "ocfilo-*" files
+   (Faz 2 planning, pilot, capacity, main-protection plan). The root README.md
+   documents only the GitHub Actions runner and never links to docs/, so the docs
+   set has no single human-readable entry point.
+
+2. The effective table of contents is CI wiring, not prose. Individual docs are
+   registered as trigger paths inside matching workflows under .github/workflows/:
+   oc-fleet-issue-tests.yml lists 8 docs/oc-fleet-*.md paths, oc-fleet-tests.yml
+   lists docs/oc-fleet-pilot.md, oc-fleet-publish-tests.yml lists
+   docs/oc-fleet-publisher.md, and ocfilo-f2-plan-tests.yml lists docs/ocfilo-f2.md.
+   That makes 11 of the 20 docs change-coupled to a test workflow, but leaves 9
+   docs (for example oc-fleet-configuration.md, oc-fleet-tool-profiles.md,
+   ocfilo-f2-capacity.md, ocfilo-main-protection-plan.md) with no workflow path
+   filter and therefore invisible to the doc-driven CI trigger.
+
+3. Language and encoding split along the same prefix line. The oc-fleet-* docs are
+   written in English, while the ocfilo-* docs are written in Turkish
+   (ocfilo-main-protection-plan.md alone contains 347 Turkish-specific characters).
+   docs/ocfilo-f2.md is stored corrupted: all 507 of its non-ASCII bytes are
+   U+FFFD REPLACEMENT CHARACTER, so its Turkish headings ("Faz 2 - Universal
+   Multi-Agent Orchestration", "İlk teslimat: güvenli planlama") are unreadable
+   mojibake in the committed tree, while the equivalent ocfilo-f2-pilot.md and
+   ocfilo-f2-capacity.md remain intact UTF-8.
+
+Companion notes: docs are the only prose in the repo; operational detail otherwise
+lives in .github/scripts/ (Python), .github/workflows/ (YAML), examples/ (JSON task
+plans) and .opencode/skills/runner-check/SKILL.md.

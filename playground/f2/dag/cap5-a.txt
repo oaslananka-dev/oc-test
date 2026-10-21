@@ -1,0 +1,16 @@
+Repository layout observations
+
+1. Six top-level directories carry the project: .github (94 files - 67 Python
+   scripts, 26 workflow YAMLs, 1 TypeScript plugin), .opencode (one example
+   skill), docs (20 Markdown guides), examples (5 JSON plan fixtures), ops
+   (2 systemd units), and playground (15 scratch run artifacts).
+
+2. All executable code lives under .github/: scripts/ is the automation core,
+   split into 18 oc_fleet_*.py fleet drivers, 16 ocfilo_*.py F2 pipeline
+   stages, 32 matching test_*.py files, and one prepare_opencode.py, while
+   workflows/ holds 19 ocfilo-*.yml, 6 oc-fleet-*.yml, and oc.yml.
+
+3. Everything outside .github/ is data or prose - docs/ is Markdown only,
+   examples/ holds the reviewed JSON plan manifests, ops/systemd/ declares the
+   dispatch service and timer, and playground/ stores throwaway JSON receipts
+   and plain-text proofs produced by fleet and DAG runs.
