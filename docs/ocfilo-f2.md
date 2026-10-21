@@ -37,15 +37,22 @@ runner-check), identity=actions-readonly, allowed_paths (görev başına
 playground/ altında 1–8 tam dosya yolu), isteğe bağlı depends_on ve
 issue_number alanları bulunur.
 
-- Yalnız oaslananka-dev/oc-test deposu ve run_mode=plan-only kabul edilir.
+- Yalnız oaslananka-dev/oc-test deposu, şema sürümü 1 ve
+  run_mode=plan-only kabul edilir. max_parallel 1–10 arasında bir planlama
+  sınırıdır; worker çalıştırma izni değildir.
 - Model F1'den yeniden kullanılan ücretsiz model izin listesinde olmalıdır.
-- Tanımlanmamış manifest alanları, yetkisiz kimlik/profil/model ve uygun
-  olmayan istemler reddedilir. Manifestten keyfî MCP veya eklenti yetkisi
-  sağlanmaz.
-- Dosya sahipliği çakışması, izin verilmeyen dosya yolları, dizin geçişi
-  (..), tekrarlanan yollar ve eksik/döngüsel bağımlılıklar reddedilir.
-- issue_number, GitHub issue oluşturma izni değil, yalnız referans bilgisidir.
-- Plan çıktısı var olan hedef dosyayı üzerine yazmaz.
+  agent=build, izinli profil ve salt-okunur kimlik dışında görev kabul edilmez.
+- Tanımlanmamış kök/görev alanları reddedilir. Manifestte keyfî MCP,
+  eklenti, PAT, kişisel kimlik veya yayınlama izni sağlayacak alan yoktur.
+  Görev prompt'u doğrulanır, ancak plan özetine aktarılmaz.
+- Dosya sahipliği büyük/küçük harf duyarsız karşılaştırılır; aynı veya
+  iç içe geçmiş yollar, nokta ve çift nokta bileşenleri, gizli hedefler,
+  özel/ayrılmış adlar (ör. .git, .github, .env, con, nul), .pyc hedefleri
+  ve playground/ dışındaki yollar reddedilir.
+- Eksik, tekrarlanan veya döngüsel görev bağımlılıkları reddedilir.
+  issue_number, GitHub issue oluşturma izni değil, yalnız referans bilgisidir.
+- Plan dosyası en fazla 64 KB girdi kabul eder; çıktıyı mevcut hedefin
+  üzerine yazmaz. Bu sınırlar gerçek worker çalıştırma yetkisi vermez.
 
 ## Yerel, modelsiz doğrulama
 
@@ -75,10 +82,11 @@ salt-okunur plan testi ve önizlemesi üretir.
    **5-ajan operasyonel kapasite doğrulanmıştır.** Tek bir 10/10 temiz
    koşu, uzun dönem 10-ajan güvenilirliğini kanıtlamaz.
    Kanıtlar: [F2 kapasite raporu](ocfilo-f2-capacity.md).
-4. **F2.4 — Kontrollü entegrasyon:** Tamamlanmış görev artefaktlarını
-   izinli yollar ve kaynak SHA'ya göre doğrulayıp insanın inceleyeceği
-   değişiklik önerisi hazırlama. Otomatik merge veya production deploy
-   yetkisi değildir. İnceleme amaçlı PR #110 ve #118 ayrıca takip edilir.
+4. **F2.4 — Kontrollü entegrasyon:** Gerçek beş-worker GitHub Actions
+   artefaktları, izinli dosya yolları ve kaynak SHA ile bağımsız olarak
+   doğrulanmış; sonuç tek bir inceleme PR'ının içeriğiyle birebir eşleşmiştir.
+   Bu **teknik kabul**, üretilen içeriğin doğruluğuna veya merge/deploy'a
+   otomatik onay vermez. Kanıt PR #110'da; #110 ve #118 taslak kalır.
 5. **F2.5 — İsteğe bağlı Multica adaptörü:** Yalnız güvenilir GitHub
    olaylarıyla izlenebilir koordinasyon; engellenmiş yerel/native
    Autopilot yetkisi **Issue #6** çözülmeden aşılmaz.
