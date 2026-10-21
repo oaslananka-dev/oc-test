@@ -136,3 +136,60 @@ call or additional GitHub permissions are required for this recovery.
 A successful **offline** Git-history and dispatch-policy test does not by
 itself establish a live end-to-end recovery acceptance. Existing tasks remain
 fail-closed unless expressly opted in **at dispatch**.
+
+## Live safe-base recovery acceptance: OAS-31/OAS-32 (21 October 2026)
+
+This is the first real GitHub-hosted two-sided live acceptance of the
+optional SHA/base-advance recovery policy for external PR-only tasks.
+
+- The trusted controller's own source repo cannot serve as its external
+  PR-only target because the existing source-repository policy prohibits
+  self-targeting in that mode. No exception was added. The previously
+  authorized target oaslananka/adxl355 was used instead.
+- Multica OAS-31 / [target issue #140](https://github.com/oaslananka/adxl355/issues/140)
+  was restricted to playground/fleet/base-recovery-20261021-positive.json.
+  OAS-32 / [issue #141](https://github.com/oaslananka/adxl355/issues/141)
+  was restricted to playground/fleet/base-recovery-20261021-negative.json.
+  Both enabled fleet_allow_safe_base_advance=true BEFORE dispatch;
+  fleet_external_pr_only=true, fleet_auto_merge=false and free
+  opencode/big-pickle were preserved.
+- The 13:10 scheduled tick dispatched distinct GitHub-hosted workers:
+  [39582617823](https://github.com/MakerParsDev/oc-test/actions/runs/39582617823)
+  (OAS-31) and
+  [39582617771](https://github.com/MakerParsDev/oc-test/actions/runs/39582617771)
+  (OAS-32). Each completed SUCCESS, run_attempt=1. Both original
+  trusted controller receipts pinned checkout_sha
+  1a9bf4330021349a6d955d85a836a7b4684d0ffa,
+  the account identities, optional dispatch policy and exact scopes.
+- Base fixture [PR #142](https://github.com/oaslananka/adxl355/pull/142)
+  initially exposed unrelated pip-audit advisory PYSEC-2026-4320 for
+  pinned certifi 2026.7.22. The separate narrow
+  [security PR #144](https://github.com/oaslananka/adxl355/pull/144)
+  updated the PlatformIO pin and independently verified two PyPI
+  artifact hashes to certifi 2026.10.19. Audit and CI passed;
+  controlled merge SHA 8f063814ca4571ad871903577f2d4ac4348d3248.
+- PR #142 was then updated to the patched main, passed 45 checks and
+  merged as 5f47f2a380d4cfe360898963087d9e68c3c7015d.
+  Its two harmless fixture files changed a file unrelated to OAS-31
+  and exactly the allowed file of OAS-32 (negative conflict).
+- At 13:24 the real systemd detached reconciliation published the
+  original OAS-31 worker artifact as
+  [ADXL355 PR #145](https://github.com/oaslananka/adxl355/pull/145).
+  Scope is exactly its one positive JSON file; 46/46 GitHub checks
+  SUCCESS. Multica OAS-31 is in_review/pr_created, without auto-merge.
+- OAS-32 was refused in the same reconciliation. A separate safe
+  resume verify-only invocation confirmed the precise error:
+  "target base changed approved scope:
+  playground/fleet/base-recovery-20261021-negative.json".
+  No negative PR was created and no worker was rerun. Multica records
+  OAS-32 as blocked/worker_blocked with the scoped conflict reason.
+- The five-minute timer was temporarily paused after both workers
+  succeeded to prevent early publication before the reviewed base
+  change. It was restored and the 13:26 catch-up tick returned SUCCESS
+  without duplicate dispatch or unauthorized external merge.
+
+Result: one safe monotonic base recovery published the original
+authenticated patch; one changed approved path failed closed. Worker
+capacity stays four; free model only; no broadened permissions,
+auto-merge, or unsafe fallback. This is an accepted live test,
+not authorization to merge the intentionally open fixture PR #145.
