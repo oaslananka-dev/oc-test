@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "repository": "oaslananka-dev/oc-test",
+  "repository_visibility_at_observation": "public",
+  "observation_date_utc": "2026-10-21",
+  "source": "GitHub REST Actions job timestamps and artifact metadata; manually verified repo public/standard ubuntu runner; no billing attestation",
+  "runs": [
+    {
+      "run_id": 38360448016,
+      "worker_jobs": 10,
+      "total_jobs": 22,
+      "executed_jobs": 17,
+      "active_job_seconds_total": 617,
+      "worker_job_seconds_total": 575,
+      "roundup_job_minutes_observed": 21,
+      "standard_ubuntu_runner": "ubuntu-24.04",
+      "artifact_zip_bytes": null,
+      "artifact_zip_count": null,
+      "artifact_availability": "not_available"
+    },
+    {
+      "run_id": 38361074538,
+      "worker_jobs": 11,
+      "total_jobs": 22,
+      "executed_jobs": 18,
+      "active_job_seconds_total": 1015,
+      "worker_job_seconds_total": 977,
+      "roundup_job_minutes_observed": 28,
+      "standard_ubuntu_runner": "ubuntu-24.04",
+      "artifact_zip_bytes": null,
+      "artifact_zip_count": null,
+      "artifact_availability": "not_available"
+    },
+    {
+      "run_id": 39610361972,
+      "worker_jobs": 11,
+      "total_jobs": 22,
+      "executed_jobs": 18,
+      "active_job_seconds_total": 1747,
+      "worker_job_seconds_total": 1702,
+      "roundup_job_minutes_observed": 43,
+      "standard_ubuntu_runner": "ubuntu-24.04",
+      "artifact_zip_bytes": 14833,
+      "artifact_zip_count": 12,
+      "artifact_availability": "downloadable"
+    },
+    {
+      "run_id": 39623759336,
+      "worker_jobs": 10,
+      "total_jobs": 22,
+      "executed_jobs": 17,
+      "active_job_seconds_total": 1140,
+      "worker_job_seconds_total": 1094,
+      "roundup_job_minutes_observed": 31,
+      "standard_ubuntu_runner": "ubuntu-24.04",
+      "artifact_zip_bytes": 13669,
+      "artifact_zip_count": 11,
+      "artifact_availability": "downloadable"
+    }
+  ]
+}
