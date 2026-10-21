@@ -202,3 +202,37 @@ official REST contract:
 https://docs.github.com/en/rest/actions/workflow-runs
 
 No such live operation is enabled by this phase.
+
+## Offline cancellation result-reconciliation simulator (phase 2.1)
+
+A separate internal module, oc_fleet_cancel_reconcile.py, models the
+GitHub Actions cancellation race WITHOUT enabling cancellation. It has
+no CLI, HTTP client, token access, worker process access or write bridge.
+It only uses synthetic HTTP responses and independent, injected GitHub
+run records in offline tests. It operates on a preexisting restrictive
+SQLite cancel-admission audit file from phase 2, NEVER on the signed
+telemetry database. All records remain labeled simulation-only.
+
+A simulated send intent is durably recorded as outcome_unknown BEFORE
+any response is processed. Repeated intents are suppressed by proposal
+ID, including across SQLite reopen/restart and across concurrent calls.
+A synthetic GitHub response of 202 becomes accepted_unconfirmed, NEVER
+cancelled; 409 becomes conflict_unresolved, NEVER success; 401/403
+becomes permission_denied. Missing/timeout or supported server-error
+responses remain outcome_unknown and NEVER trigger an automatic retry.
+Unsupported responses fail closed. The audit stores a UTC timestamp for
+each meaningful state transition without prompt, tool content or token.
+
+A separately validated, exact run/attempt/SHA/workflow GitHub read can
+establish terminal_cancelled_observed or terminal_other_observed. The
+former means GitHub now reports conclusion=cancelled, not that this
+client caused it; cancellation_attribution stays not_proven. A still
+nonterminal run cannot resolve an uncertain/accepted request, and
+neither terminal state can be reverted. No model, workflow or Github
+request is started by these simulations.
+
+The next authorization boundary remains: trusted human identity and
+task evidence, narrow Actions write permission, atomic real send-intent
+persistence plus caller-visible uncertain handling and a specifically
+approved disposable live worker run. Until all are in place, do NOT
+enable a live cancellation API or claim an approved cancellation.
