@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+import stat
 from pathlib import Path
 
 from ocfilo_f2_plan import plan as validate_f2, REPO
@@ -300,6 +301,20 @@ def evaluate_worktree(task_id, env, temporary, agent_outcome, agent_failure=None
     if (not target.is_file() or target.is_symlink()
             or target.stat().st_size > MAX_BYTES):
         raise WorkerError("Invalid output file type or size", "OUTPUT_INVALID")
+    # A worker may give a new *.py a shebang and chmod +x. The trusted
+    # integrator allows only ordinary 100644 source patches. Normalize
+    # *new* exact-owner files before hashing the Git diff. Never mutate
+    # an existing tracked executable or expand the worker's write scope.
+    if stat.S_IMODE(target.stat().st_mode) & 0o111:
+        indexed = subprocess.run(["git", "ls-files", "--error-unmatch",
+                                  "--", allowed], capture_output=True)
+        if indexed.returncode == 0:
+            raise WorkerError("Tracked executable worker output denied",
+                              "OUTPUT_INVALID")
+        target.chmod(stat.S_IMODE(target.stat().st_mode) & ~0o111)
+    if stat.S_IMODE(target.stat().st_mode) & 0o111:
+        raise WorkerError("Executable output could not be normalized",
+                          "OUTPUT_INVALID")
     subprocess.run(["git", "add", "-N", "--", allowed], check=True)
     subprocess.run(["git", "diff", "--check", "HEAD", "--", allowed],
                    check=True, stdout=subprocess.DEVNULL)

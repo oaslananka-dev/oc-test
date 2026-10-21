@@ -186,6 +186,22 @@ class PilotContractTests(unittest.TestCase):
             self.assertEqual(result["issue_number"], 10)
             self.assertTrue((temp / "artifact" / "changes.patch").exists())
 
+    def test_new_executable_script_is_normalized_before_evidence(self):
+        with self.make_sandbox() as (directory, sha, env, temp):
+            target = Path("playground/f2/alpha.txt")
+            target.parent.mkdir(parents=True)
+            target.write_text("#!/usr/bin/env python3\nprint('ok')\n",
+                              encoding="utf-8")
+            target.chmod(0o755)
+            evidence = pilot.finalize(
+                SOURCE, "f2-exec-alpha", env, sha, temp, "success",
+                temp / "artifact", RUN_OK)
+            patch = (temp / "artifact" / "changes.patch").read_bytes()
+            self.assertTrue(evidence["scope_verified"])
+            self.assertIn(b"new file mode 100644\n", patch)
+            self.assertNotIn(b"new file mode 100755", patch)
+            self.assertFalse(target.stat().st_mode & 0o111)
+
     def test_scope_escape_rejected(self):
         with self.make_sandbox() as (directory, sha, env, temp):
             target = Path("playground/f2/alpha.txt")
