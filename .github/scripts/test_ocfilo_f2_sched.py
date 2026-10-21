@@ -257,6 +257,29 @@ class OutputContractTests(unittest.TestCase):
                 sched.main(["--plan", str(plan), "--evidence-dir", str(root / "ev"),
                             "--sha", SHA, "--output", str(out)])  # never overwrite
 
+    def test_scheduler_evidence_ingestion_rejects_ambiguous_json(self):
+        valid = json.dumps(ev(A), separators=(",", ":"))
+        malicious = (
+            valid[:-1] + ',"task_id":"f2-s-zzz"}',
+            valid[:-1] + ',"\\u0074ask_id":"f2-s-zzz"}',
+            valid[:-1] + ',"unknown":true}',
+            valid[:-1] + ',"extra":{"x":1,"x":2}}',
+            valid[:-1] + ',"agent_seconds":NaN}',
+            valid[:-1] + ',"agent_seconds":Infinity}',
+            valid[:-1] + ',"agent_seconds":1e999}',
+            '[]', 'null', '{invalid}',
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "result.json"
+            self.assertEqual(sched.load_evidence(tmp), [])
+            path.write_text(valid, encoding="utf-8")
+            self.assertEqual(sched.load_evidence(tmp), [ev(A)])
+            for payload in malicious:
+                with self.subTest(payload=payload[:96]):
+                    path.write_text(payload, encoding="utf-8")
+                    with self.assertRaises(ValueError):
+                        sched.load_evidence(tmp)
+
     def test_cli_rejects_oversized_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
