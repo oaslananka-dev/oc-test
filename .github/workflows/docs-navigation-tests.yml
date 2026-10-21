@@ -1,0 +1,30 @@
+name: Repository Documentation Index
+on:
+  pull_request:
+    paths:
+      - 'README.md'
+      - 'docs/**'
+      - '.github/scripts/test_docs_index.py'
+      - '.github/workflows/docs-navigation-tests.yml'
+  push:
+    paths:
+      - 'README.md'
+      - 'docs/**'
+      - '.github/scripts/test_docs_index.py'
+      - '.github/workflows/docs-navigation-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-index:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read-only checkout
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Verify the repository documentation index
+        run: python3 -m unittest discover -s .github/scripts -p test_docs_index.py -v

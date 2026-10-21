@@ -2,6 +2,10 @@
 
 Runs OpenCode on Ubuntu through externally supplied GitHub Actions parameters. Default: **`opencode/big-pickle`**, **`build`**, **`execute`**. No provider API keys are passed to the workflow.
 
+## Project documentation
+
+[Browse the repository documentation](docs/README.md) for the OC Fleet controller, F2 orchestration, security review, and historical acceptance records.
+
 ## First test
 
 Open [Actions → OpenCode V2 Parametric Runner](https://github.com/oaslananka-dev/oc-test/actions/workflows/oc.yml), select **Run workflow**, keep `model=opencode/big-pickle`, `agent=build`, `run_mode=execute`, and enter a harmless prompt such as:
