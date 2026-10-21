@@ -129,6 +129,16 @@ one run are correlated, NOT forty independent capacity-reliability trials.
    all ten succeed on first attempt, zero timeout or retry, exact-owned
    artifacts independently replay to COMPLETE, original GitHub conclusion
    SUCCESS, and no paid provider or publication. Failure breaks the streak.
+   For the conservative metadata-only precheck, require **at least 5
+   distinct UTC days, 3 distinct six-hour UTC clock bins, one hour between
+   run dispatches, the identical exact checkout SHA, and independently
+   replayed artifacts for every run**. These are *proposed* observable
+   spacing/configuration criteria, not a proof of statistical independence.
+   For the conservative metadata-only precheck, require **at least 5
+   distinct UTC days, 3 distinct six-hour UTC clock bins, one hour between
+   run dispatches, the identical exact checkout SHA, and independently
+   replayed artifacts for every run**. These are *proposed* observable
+   spacing/configuration criteria, not a proof of statistical independence.
 4. As an engineering guardrail, require all first-round GitHub worker job
    wall times no more than **480 seconds** with the approved 600-second
    *agent* deadline. The proposed 120-second difference is not a provider
@@ -146,8 +156,44 @@ one run are correlated, NOT forty independent capacity-reliability trials.
    additional live experiment. No automatic cadence, hidden test runs,
    paid fallback, or newly provisioned resources.
 
+The analyzer now also reports the field
+prospective_candidate_cohort_precheck_not_authorization with explicit
+rejection reasons and the verified-artifact subset of clean historical runs.
+The current four-run dataset **FAILS** this precheck, including because
+only **1 of the 2 apparently clean runs** has independently replayed artifact
+evidence. The other clean October 13 run has authentic GitHub success
+metadata, but its artifacts expired and cannot be retrospectively verified.
+
+Even an entirely synthetic 29/29 metadata set that passes these offline
+checks **cannot authorize operational promotion**: the script cannot prove
+a complete unselected run list, authentic GitHub provenance or unchanged
+model/CLI/runner behavior. These facts, true time-block independence and
+the user's resource/authorization approval need human/source verification.
+The output keeps promote_capacity_to_ten_authorized=false and
+new_live_runs_authorized=false unconditionally.
+
+The analyzer now also reports the field
+prospective_candidate_cohort_precheck_not_authorization with explicit
+rejection reasons and the verified-artifact subset of clean historical runs.
+The current four-run dataset **FAILS** this precheck, including because
+only **1 of the 2 apparently clean runs** has independently replayed artifact
+evidence. The other clean October 13 run has authentic GitHub success
+metadata, but its artifacts expired and cannot be retrospectively verified.
+
+Even an entirely synthetic 29/29 metadata set that passes these offline
+checks **cannot authorize operational promotion**: the script cannot prove
+a complete unselected run list, authentic GitHub provenance or unchanged
+model/CLI/runner behavior. These facts, true time-block independence and
+the user's resource/authorization approval need human/source verification.
+The output keeps promote_capacity_to_ten_authorized=false and
+new_live_runs_authorized=false unconditionally.
+
 This policy is a proposed measurable gate, not a claim that 10-agent
 operational concurrency is already reliable or permission to promote it.
+No further workflow dispatch, scheduled monitoring, background model use,
+paid fallback or new infrastructure is authorized by this change.
+No further workflow dispatch, scheduled monitoring, background model use,
+paid fallback or new infrastructure is authorized by this change.
 
 ## How to repeat
 
