@@ -584,6 +584,7 @@ def main():
             require(m["base_branch"]==branch and m["prompt"]==prompt
                     and m["allowed_paths"]==args.path and m["model"]==args.model
                     and m["profile"]==args.profile
+                    and m.get("agent","build")==args.agent
                     and m.get("tool_profile","")==args.tool_profile
                     and m.get("integrations",[])==args.integration,
                     "target issue or immutable worker selection changed")
