@@ -316,6 +316,20 @@ class IssueControllerTests(unittest.TestCase):
             a=controller.receipt("alice/repo",42)
             self.assertEqual(a,controller.receipt("ALICE/REPO",42))
             self.assertNotEqual(a,controller.receipt("alice/repo",43))
+    def test_detached_retry_requires_normal_terminal_failure_guard(self):
+        # Dispatch-only retry is allowed only as a new run. The trusted
+        # retry_receipt() still checks previous terminal failure and max runs.
+        self.assertTrue(controller.detached_dispatch_allowed("run", True, False, False))
+        self.assertTrue(controller.detached_dispatch_allowed("run", False, False, False))
+        for mode, dry_run, verify_only in (
+            ("resume", False, False),
+            ("run", True, False),
+            ("run", False, True),
+        ):
+            with self.subTest(mode=mode, dry_run=dry_run, verify_only=verify_only):
+                self.assertFalse(controller.detached_dispatch_allowed(
+                    mode, True, dry_run, verify_only))
+
     def test_retry_receipt_fail_closed_and_preserves_history(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"receipt.json"

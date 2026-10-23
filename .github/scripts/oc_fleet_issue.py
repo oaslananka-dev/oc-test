@@ -463,6 +463,13 @@ def require_dispatch_policy(receipt_doc, expected, target_account=None,
                 and receipt_doc["worker_account"].lower()==worker_account.lower(),
                 "safe base advance target or worker actor changed")
 
+def detached_dispatch_allowed(mode, dispatch_only, dry_run, verify_only):
+    """Allow detached retries only through the existing terminal-failure ledger."""
+    return not dispatch_only or (
+        mode == "run" and not dry_run and not verify_only
+    )
+
+
 def retry_receipt(worker_env, path, allowed,runner=RUNNER):
     if not path.exists():
         return []
@@ -526,9 +533,9 @@ def main():
             and not args.dry_run and not args.retry_failed
             and not args.dispatch_only),
             "safe base advance requires explicitly authorized external PR-only resume")
-    require(not args.dispatch_only or (args.mode == "run" and not args.dry_run
-            and not args.verify_only and not args.retry_failed),
-            "Dispatch-only cannot resume, retry, preview or publish")
+    require(detached_dispatch_allowed(
+                args.mode, args.dispatch_only, args.dry_run, args.verify_only),
+            "Dispatch-only cannot resume, preview or publish")
     worker=identity(args.worker_account)
     runner=authorized_worker_repo(worker,args.worker_repo)
     target=identity(args.target_account)
