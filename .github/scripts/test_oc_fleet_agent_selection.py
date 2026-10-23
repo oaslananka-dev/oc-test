@@ -12,6 +12,11 @@ class AgentWorkflowTests(unittest.TestCase):
         self.assertEqual(flow.count('--agent "$FLEET_AGENT_ROLE"'), 2)
         self.assertNotIn("--agent build", flow)
         self.assertIn("Selected agent was overridden", flow)
+        # Guard real execution: Path must be imported before sys.path.insert.
+        self.assertLess(
+            flow.index('from pathlib import Path\n          m=json.loads'),
+            flow.index('sys.path.insert(0, str(Path('),
+        )
 
     def test_cli_and_detached_receipt_cannot_change_role(self):
         base=Path(__file__).parent
