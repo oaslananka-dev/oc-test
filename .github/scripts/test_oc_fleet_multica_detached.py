@@ -38,6 +38,29 @@ RUN={"id":12345,"repository":{"full_name":"MakerParsDev/oc-test"},
 
 
 class DetachedTests(unittest.TestCase):
+    def test_health_distinguishes_idle_backlog_from_failed_work(self):
+        inventory=[
+            {"status":"blocked","metadata":{"fleet_result":"worker_failed"}},
+            {"status":"backlog","metadata":{"fleet_ready":False}},
+            {"status":"todo","metadata":{"fleet_ready":True}},
+            {"status":"in_progress","metadata":{
+                "fleet_result":"worker_dispatched"}},
+            {"status":"in_review","metadata":{"fleet_result":"pr_created"}},
+        ]
+        self.assertEqual(queue.queue_health(inventory),{
+            "ready":1, "running":1, "failed":1, "in_review":1, "waiting":1})
+        self.assertEqual(queue.queue_health([]),{
+            "ready":0, "running":0, "failed":0, "in_review":0, "waiting":0})
+        with self.assertRaisesRegex(ValueError, "Invalid"):
+            queue.queue_health([{"status":"blocked","metadata":[]}])
+
+    def test_health_read_only_does_not_dispatch_or_change_status(self):
+        sample=[{"status":"blocked","metadata":{"fleet_result":"worker_failed"}}]
+        with patch.object(queue, "execute") as run:
+            summary=queue.queue_health(sample)
+            self.assertEqual(summary["failed"],1)
+            run.assert_not_called()
+
     def test_dispatch_starts_one_run_without_waiting_and_persists_claim(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)
