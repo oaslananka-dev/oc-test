@@ -16,6 +16,8 @@ on:
       - '.github/scripts/test_oc_fleet_cancel_reconcile.py'
       - '.github/scripts/oc_fleet_approval_probe.py'
       - '.github/scripts/test_oc_fleet_approval_probe.py'
+      - '.github/scripts/oc_fleet_cancel_target_binding.py'
+      - '.github/scripts/test_oc_fleet_cancel_target_binding.py'
       - '.github/scripts/test_oc_fleet_telemetry.py'
       - '.github/scripts/oc_fleet_tools.py'
       - '.github/scripts/test_oc_fleet_tools.py'
@@ -65,6 +67,8 @@ on:
       - '.github/scripts/test_oc_fleet_cancel_reconcile.py'
       - '.github/scripts/oc_fleet_approval_probe.py'
       - '.github/scripts/test_oc_fleet_approval_probe.py'
+      - '.github/scripts/oc_fleet_cancel_target_binding.py'
+      - '.github/scripts/test_oc_fleet_cancel_target_binding.py'
       - '.github/scripts/test_oc_fleet_telemetry.py'
       - '.github/scripts/oc_fleet_tools.py'
       - '.github/scripts/test_oc_fleet_tools.py'
@@ -126,6 +130,7 @@ jobs:
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_cancel_admission.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_cancel_reconcile.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_approval_probe.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_cancel_target_binding.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_tools.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_identity.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_contract.py -v

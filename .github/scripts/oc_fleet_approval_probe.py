@@ -112,6 +112,8 @@ def inspect(control_id, expected_sha, reviewer_id, environment_id, reader=read_a
         "schema_version": 1,
         "source": "github_native_review_history_get_only",
         "control_run_id": control_id, "control_sha": expected_sha,
+        "reviewer_id": reviewer_id, "environment_id": environment_id,
+        "triggering_actor_id": trigger["id"],
         "environment": ENVIRONMENT,
         "matching_approval_record_observed": found,
         "required_reviewer_configuration_observed": True,
