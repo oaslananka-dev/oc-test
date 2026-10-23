@@ -18,6 +18,36 @@ def read_api(path):
     return json.loads(result.stdout)
 
 
+def required_reviewer_configuration(environment, reviewer_id, environment_id,
+                                    triggering_id):
+    """GET-only evidence about configured reviewers; never cancel authority."""
+    if (not isinstance(environment, dict)
+            or type(environment.get("id")) is not int
+            or environment["id"] != environment_id
+            or environment.get("name") != ENVIRONMENT
+            or type(triggering_id) is not int or triggering_id <= 0
+            or triggering_id == reviewer_id):
+        raise ValueError("untrusted environment/trigger identity")
+    rules = environment.get("protection_rules")
+    if not isinstance(rules, list) or len(rules) > 20:
+        raise ValueError("missing or unbounded environment rules")
+    required = [r for r in rules if isinstance(r, dict)
+                and r.get("type") == "required_reviewers"]
+    if len(required) != 1 or required[0].get("prevent_self_review") is not True:
+        raise ValueError("narrow human review policy not observed")
+    reviewers = required[0].get("reviewers")
+    if not isinstance(reviewers, list) or len(reviewers) != 1:
+        raise ValueError("ambiguous permitted reviewers")
+    entry = reviewers[0]
+    if not isinstance(entry, dict) or entry.get("type") != "User":
+        raise ValueError("human reviewer missing")
+    user = entry.get("reviewer")
+    if (not isinstance(user, dict) or type(user.get("id")) is not int
+            or user["id"] != reviewer_id):
+        raise ValueError("expected reviewer not configured")
+    return True
+
+
 def inspect(control_id, expected_sha, reviewer_id, environment_id, reader=read_api):
     """All expected IDs MUST come from a trusted policy, never a worker or model.
 
@@ -46,6 +76,13 @@ def inspect(control_id, expected_sha, reviewer_id, environment_id, reader=read_a
             or run.get("path") not in (WORKFLOW, WORKFLOW + "@main",
                                       WORKFLOW + "@refs/heads/main")):
         raise ValueError("untrusted control workflow identity")
+    trigger = run.get("triggering_actor")
+    if (not isinstance(trigger, dict) or trigger.get("type") != "User"
+            or type(trigger.get("id")) is not int):
+        raise ValueError("untrusted initiating actor")
+    environment = reader(f"repos/{REPO}/environments/{ENVIRONMENT}")
+    required_reviewer_configuration(environment, reviewer_id, environment_id,
+                                    trigger["id"])
     reviews = reader(prefix + "/approvals")
     if not isinstance(reviews, list) or len(reviews) > 100:
         raise ValueError("unbounded/invalid review evidence")
@@ -77,6 +114,7 @@ def inspect(control_id, expected_sha, reviewer_id, environment_id, reader=read_a
         "control_run_id": control_id, "control_sha": expected_sha,
         "environment": ENVIRONMENT,
         "matching_approval_record_observed": found,
+        "required_reviewer_configuration_observed": True,
         "environment_protection_verified": False,
         "target_run_manifest_bound": False,
         "target_specific_approval_verified": False,
