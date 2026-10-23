@@ -236,3 +236,33 @@ task evidence, narrow Actions write permission, atomic real send-intent
 persistence plus caller-visible uncertain handling and a specifically
 approved disposable live worker run. Until all are in place, do NOT
 enable a live cancellation API or claim an approved cancellation.
+
+## Offline target-bound review evidence comparison (phase 2.4)
+
+`oc_fleet_cancel_target_binding.py` compares the previously generated
+five-minute, **non-executable** cancel proposal with a strict control manifest,
+the task receipt *claim*, an independently pinned manifest SHA-256 and
+control SHA, human reviewer/environment IDs, and the GitHub-native read-only
+review probe. Exact repository, workflow, run/attempt/SHA, Multica issue,
+task, control run, initiating actor and distinct reviewer must all agree.
+Conflicting or expired evidence is rejected. Unknown manifest fields are
+rejected rather than allowed to carry prompts, arbitrary commands or secrets.
+
+**Trust limitation:** This module has no authenticated issuer, secure
+manifest/artifact origin, or durable human decision provider. The digest
+and receipt are supplied by the caller and could be forged together. Thus a
+successful *offline* comparison is **NOT** authenticated provenance,
+permission, a fresh task-specific human approval, or live cancellation.
+Every result keeps `cancel_authorized=false`, `execution_enabled=false`,
+`cancel_requested=false` and explicit unverified provenance flags.
+
+Before enabling a production control workflow, separately implement and
+verify immutable manifest provenance, authenticated approver identity,
+explicit target+attempt authorization, branch/environment protection,
+a narrowly scoped Actions write credential, audited once-only dispatch,
+terminal result reconciliation and an owner-approved disposable live test.
+Do not extend the existing Multica dispatcher with a hidden write bridge
+or use the unrelated environment review as authority to cancel workers.
+GitHub's official references:
+https://docs.github.com/en/rest/actions/workflow-runs
+https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/review-deployments
