@@ -19,7 +19,7 @@ class AgentWorkflowTests(unittest.TestCase):
         controller=(base/"oc_fleet_issue.py").read_text()
         detached=(base/"oc_fleet_multica_detached.py").read_text()
         self.assertIn('"--agent", selected_agent_role(meta)', handoff)
-        self.assertIn('agent=args.agent', controller)
+        self.assertIn('agent=getattr(args, "agent", "build")', controller)
         self.assertIn('manifest.get("agent", "build")==agent', detached)
 
 if __name__ == "__main__":
