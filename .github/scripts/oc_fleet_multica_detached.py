@@ -138,6 +138,35 @@ def dispatch_one(item, project, live, claim_dir):
     return "dispatched"
 
 
+
+def queue_health(issues):
+    """Give operators a meaningful answer when ELIGIBLE=0.
+
+    No external calls, writes, telemetry secrets, or implicit retry.
+    """
+    result=dict(ready=0, running=0, failed=0, in_review=0, waiting=0)
+    for issue in issues:
+        if type(issue) is not dict:
+            raise ValueError("Invalid Multica health inventory entry")
+        meta=issue.get("metadata")
+        if meta is None:
+            meta={}
+        if type(meta) is not dict:
+            raise ValueError("Invalid Multica task metadata")
+        state=issue.get("status")
+        if state in ("backlog", "todo") and meta.get("fleet_ready") is True:
+            result["ready"]+=1
+        elif state=="in_progress" and meta.get("fleet_result")==STATE:
+            result["running"]+=1
+        elif state=="blocked" or meta.get("fleet_result") in (
+                "worker_failed","worker_blocked"):
+            result["failed"]+=1
+        elif state=="in_review":
+            result["in_review"]+=1
+        elif state in ("backlog", "todo"):
+            result["waiting"]+=1
+    return result
+
 def recover_claims(project,claim_dir,live):
     """Recover partial Multica metadata updates after a confirmed dispatch.
 
@@ -145,7 +174,12 @@ def recover_claims(project,claim_dir,live):
     local controller receipt must match an existing Multica job.
     """
     repaired=0
-    for item in listing(project):
+    inventory=listing(project)
+    counters=queue_health(inventory)
+    print("FLEET_QUEUE_HEALTH", project,
+          " ".join(key+"="+str(value) for key,value in counters.items()),
+          flush=True)
+    for item in inventory:
         key=item.get("identifier")
         if type(key) is not str or not handoff.ISSUE_RE.fullmatch(key):
             raise ValueError("Invalid claimed issue")
