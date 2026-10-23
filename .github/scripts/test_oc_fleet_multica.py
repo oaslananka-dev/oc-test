@@ -171,6 +171,7 @@ class HandoffTests(unittest.TestCase):
         meta=handoff.validate_issue(record(
             fleet_model="opencode/nemotron-3-ultra-free",
             fleet_profile="python-ruff",
+            fleet_agent="python-backend",
             fleet_tool_profile="python-docs",
             fleet_integrations='["context7","codacy"]',
             fleet_ready=True,
@@ -180,6 +181,7 @@ class HandoffTests(unittest.TestCase):
             return command[command.index(flag)+1]
         self.assertEqual(value("--model"),"opencode/nemotron-3-ultra-free")
         self.assertEqual(value("--profile"),"python-ruff")
+        self.assertEqual(value("--agent"),"python-backend")
         self.assertEqual(value("--tool-profile"),"python-docs")
         self.assertEqual([command[i+1] for i,v in enumerate(command)
                           if v=="--integration"],["context7","codacy"])
@@ -191,6 +193,7 @@ class HandoffTests(unittest.TestCase):
         args=handoff.controller_command(KEY,meta,True)
         self.assertEqual(args[args.index("--model")+1],"opencode/big-pickle")
         self.assertEqual(args[args.index("--profile")+1],"base")
+        self.assertEqual(args[args.index("--agent")+1],"build")
         self.assertNotIn("--tool-profile",args)
         self.assertNotIn("--integration",args)
 
@@ -200,6 +203,9 @@ class HandoffTests(unittest.TestCase):
             {"fleet_model":"opencode/big-pickle-plus"},
             {"fleet_model":7},
             {"fleet_profile":"admin"},
+            {"fleet_agent":"plan"},
+            {"fleet_agent":"build --model paid"},
+            {"fleet_agent":7},
             {"fleet_profile":"base;evil"},
             {"fleet_tool_profile":"../../injection"},
             {"fleet_tool_profile":"python-docs --model paid"},

@@ -33,6 +33,7 @@ jobs:
       sha: ${{ steps.contract.outputs.sha }}
       model: ${{ steps.contract.outputs.model }}
       profile: ${{ steps.contract.outputs.profile }}
+      agent: ${{ steps.contract.outputs.agent }}
       task_id: ${{ steps.contract.outputs.task_id }}
       allowlist: ${{ steps.contract.outputs.allowlist }}
       tool_profile_b64: ${{ steps.contract.outputs.tool_profile_b64 }}
@@ -202,6 +203,7 @@ jobs:
           FLEET_MANIFEST_JSON: ${{ inputs.manifest_json }}
           FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}
           FLEET_MODEL: ${{ needs.validate.outputs.model }}
+          FLEET_AGENT_ROLE: ${{ needs.validate.outputs.agent }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -233,19 +235,24 @@ jobs:
           # Use an explicit ephemeral config, consistent with the proven F2 pilot.
           # This stays outside the target git worktree and contains no credentials.
           export OPENCODE_CONFIG_CONTENT="$(python3 - <<'PY'
-          import json, os
+          import json, os, sys
+          from pathlib import Path
           m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
+          sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"])/"runner/.github/scripts"))
+          from oc_fleet_contract import agent_configuration
           cfg={
               "$schema": "https://opencode.ai/config.json",
               "model": os.environ["FLEET_MODEL"],
-              "default_agent": "build",
+              "default_agent": m.get("agent", "build"),
               "share": "disabled",
           }
+          custom_agents=agent_configuration(m.get("agent", "build"))
+          if custom_agents:
+              cfg["agent"]=custom_agents
           if "context7" in m.get("integrations", []):
               if not os.getenv("CONTEXT7_API_KEY"):
                   raise SystemExit("Context7 selected but Doppler configuration missing")
               cfg["plugins"] = ["@upstash/context7-opencode@0.2.1"]
-          from pathlib import Path
           selected=Path(os.environ["RUNNER_TEMP"])/"fleet-selected-tools"/"config.json"
           extension=json.loads(selected.read_text(encoding="utf-8"))
           if extension.get("plugins"):
@@ -259,13 +266,27 @@ jobs:
           PY
           )"
           opencode debug config > "$RUNNER_TEMP/fleet-resolved-config.json"
+          # A missing or unavailable custom agent must fail closed rather than
+          # silently falling back to the generic build primary agent.
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          selected=os.environ["FLEET_AGENT_ROLE"]
+          resolved=json.loads((Path(os.environ["RUNNER_TEMP"])/"fleet-resolved-config.json").read_text())
+          if resolved.get("default_agent") != selected:
+              raise SystemExit("Selected agent was overridden in resolved configuration")
+          if selected != "build":
+              agent=resolved.get("agent", {}).get(selected, {})
+              if agent.get("mode") not in ("primary","all") or not agent.get("prompt"):
+                  raise SystemExit("Selected primary agent unavailable in resolved configuration")
+          PY
           start=$SECONDS
           set +e
           if [ -n "$FLEET_TELEMETRY_URL" ]; then
             # OIDC available only to the observer, not the model process.
             timeout --signal=TERM --kill-after=15s 1200s \
                 env -u ACTIONS_ID_TOKEN_REQUEST_URL -u ACTIONS_ID_TOKEN_REQUEST_TOKEN \
-                opencode run --standalone --model "$FLEET_MODEL" --agent build --format json \
+                opencode run --standalone --model "$FLEET_MODEL" --agent "$FLEET_AGENT_ROLE" --format json \
                 "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
                 2> "$RUNNER_TEMP/fleet-agent.log" \
               | python3 "$GITHUB_WORKSPACE/runner/.github/scripts/oc_fleet_telemetry.py" \
@@ -277,7 +298,7 @@ jobs:
             fi
           else
             timeout --signal=TERM --kill-after=15s 1200s \
-                opencode run --standalone --model "$FLEET_MODEL" --agent build --format default \
+                opencode run --standalone --model "$FLEET_MODEL" --agent "$FLEET_AGENT_ROLE" --format default \
                 "$(cat "$RUNNER_TEMP/fleet-prompt.txt")" \
                 > "$RUNNER_TEMP/fleet-agent.log" 2>&1
             rc=$?

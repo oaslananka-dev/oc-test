@@ -119,6 +119,7 @@ def manifest_for(repo,issue,sha,branch,prompt,args,allow):
     m=dict(schema_version=1,task_id=task,source="rules",repository=repo,
            checkout_sha=sha,base_branch=branch,issue_key=f"GH-{issue}",
            prompt=prompt,model=args.model,profile=args.profile,
+           agent=getattr(args, "agent", "build"),
            allowed_paths=args.path,phase="implement",publish=False,
            integrations=getattr(args,"integration",[]),
            tool_profile=getattr(args,"tool_profile",""))
@@ -492,6 +493,8 @@ def main():
     a.add_argument("--path",action="append",default=[])
     a.add_argument("--model",default="opencode/big-pickle")
     a.add_argument("--profile",default="base")
+    a.add_argument("--agent",default="build",
+                   help="Reviewed OpenCode primary agent role, independent of tool profile")
     a.add_argument("--integration",action="append",default=[],choices=("context7","codacy","sonarqube"))
     a.add_argument("--tool-profile",default="",help="Named Doppler profile for task MCP/skills/plugins/CLI")
     a.add_argument("--multica-issue",default="",
@@ -547,7 +550,7 @@ def main():
         m=manifest_for(args.repo,args.issue,sha,branch,prompt,args,allow)
         if args.dry_run:
             print(json.dumps({"status":"DRY_RUN","repo":args.repo,"issue":args.issue,
-                 "sha":sha,"model":args.model,"profile":args.profile,
+                 "sha":sha,"model":args.model,"profile":args.profile,"agent":args.agent,
                  "scope":args.path,"integrations":m["integrations"],"tool_profile":m["tool_profile"],"multica_issue":m.get("multica_issue",""),"account":args.target_account,"worker_repo":runner},indent=2))
             return
         number=dispatch(worker,m,runner=runner)
@@ -581,6 +584,7 @@ def main():
             require(m["base_branch"]==branch and m["prompt"]==prompt
                     and m["allowed_paths"]==args.path and m["model"]==args.model
                     and m["profile"]==args.profile
+                    and m.get("agent","build")==args.agent
                     and m.get("tool_profile","")==args.tool_profile
                     and m.get("integrations",[])==args.integration,
                     "target issue or immutable worker selection changed")

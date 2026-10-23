@@ -24,6 +24,11 @@ on:
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_contract.py'
+      - '.github/scripts/oc_fleet_multica.py'
+      - '.github/scripts/test_oc_fleet_multica.py'
+      - '.github/scripts/test_oc_fleet_contract.py'
+      - '.github/scripts/test_oc_fleet_agent_selection.py'
       - '.github/scripts/oc_fleet_multica_poll.py'
       - '.github/scripts/oc_fleet_multica_finalize.py'
       - '.github/scripts/test_oc_fleet_multica_finalize.py'
@@ -75,6 +80,11 @@ on:
       - '.github/scripts/oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_identity.py'
       - '.github/scripts/test_oc_fleet_issue.py'
+      - '.github/scripts/oc_fleet_contract.py'
+      - '.github/scripts/oc_fleet_multica.py'
+      - '.github/scripts/test_oc_fleet_multica.py'
+      - '.github/scripts/test_oc_fleet_contract.py'
+      - '.github/scripts/test_oc_fleet_agent_selection.py'
       - '.github/scripts/oc_fleet_multica_poll.py'
       - '.github/scripts/oc_fleet_multica_finalize.py'
       - '.github/scripts/test_oc_fleet_multica_finalize.py'
@@ -134,5 +144,8 @@ jobs:
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_tools.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_identity.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_contract.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_multica.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_multica_detached.py -v
+          python3 -m unittest discover -s .github/scripts -p test_oc_fleet_agent_selection.py -v
           python3 -m py_compile .github/scripts/oc_fleet_issue.py
           python3 -m unittest discover -s .github/scripts -p 'test_oc_fleet_*.py' -q

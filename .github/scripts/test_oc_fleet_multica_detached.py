@@ -82,11 +82,13 @@ class DetachedTests(unittest.TestCase):
         selected={**META,
                   "fleet_model":"opencode/nemotron-3-ultra-free",
                   "fleet_profile":"python-ruff",
+                  "fleet_agent":"python-backend",
                   "fleet_tool_profile":"python-docs",
                   "fleet_integrations":'["context7"]'}
         manifest={**DOC["manifest"],
                   "model":"opencode/nemotron-3-ultra-free",
                   "profile":"python-ruff",
+                  "agent":"python-backend",
                   "tool_profile":"python-docs",
                   "integrations":["context7"]}
         document={**DOC,"manifest":manifest}
@@ -98,6 +100,7 @@ class DetachedTests(unittest.TestCase):
                 for change in (
                     {"fleet_model":"opencode/big-pickle"},
                     {"fleet_profile":"security-semgrep"},
+                    {"fleet_agent":"embedded-firmware"},
                     {"fleet_tool_profile":"context7-mcp"},
                     {"fleet_integrations":'["codacy"]'},
                 ):

@@ -11,7 +11,7 @@ import re
 import subprocess
 import sys
 
-from oc_fleet_contract import clean_relpath, MODELS, PROFILES
+from oc_fleet_contract import clean_relpath, MODELS, PROFILES, AGENTS
 
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
 UUID_RE = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\Z")
@@ -61,6 +61,13 @@ def extra_allowed_paths(meta):
 
 TOOL_PROFILE_RE = re.compile(r"[a-z][a-z0-9-]{0,47}\Z")
 INTEGRATIONS = frozenset({"context7", "codacy", "sonarqube"})
+
+
+def selected_agent_role(meta):
+    agent = meta.get("fleet_agent", "build")
+    if type(agent) is not str or agent not in AGENTS:
+        raise ValueError("Unapproved fleet agent role")
+    return agent
 
 
 def selected_agent_configuration(meta):
@@ -138,6 +145,7 @@ def validate_issue(issue, key, project_id, execute):
     if target.lower() != "oaslananka-dev/oc-test" and meta.get("fleet_external_pr_only") is not True:
         raise ValueError("Non-pilot repo requires external PR-only authorization")
     selected_agent_configuration(meta)
+    selected_agent_role(meta)
     safe_advance=meta.get("fleet_allow_safe_base_advance",False)
     if type(safe_advance) is not bool:
         raise ValueError("Safe base advance must be a boolean")
@@ -162,6 +170,7 @@ def controller_command(key, meta, execute):
         "--target-account", meta["fleet_target_account"],
         "--model", model,
         "--profile", profile,
+        "--agent", selected_agent_role(meta),
         "--multica-issue", key,
         "--require-approved-target",
     ]
