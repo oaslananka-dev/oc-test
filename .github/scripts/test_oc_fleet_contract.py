@@ -28,6 +28,22 @@ class FleetTests(unittest.TestCase):
                   {"allowed_paths":["playground/fleet/","playground/FLEET/"]},
                   {"arbitrary_plugin_url":"https://evil.invalid"}]:
             with self.subTest(v=v),self.assertRaises((ValueError,TypeError)): parse(v)
+    def test_reviewed_primary_agents_default_and_fail_closed(self):
+        self.assertEqual(parse().get("agent", "build"), "build")
+        for name in fleet.AGENTS:
+            self.assertEqual(parse({"agent": name})["agent"], name)
+            config = fleet.agent_configuration(name)
+            if name == "build":
+                self.assertEqual(config, {})
+            else:
+                self.assertEqual(config[name]["mode"], "primary")
+                self.assertTrue(config[name]["prompt"])
+        for bad in ("plan", "explore", "security-review;echo", "../agent", "", 7, None):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse({"agent": bad})
+            with self.subTest(config=bad), self.assertRaises(ValueError):
+                fleet.agent_configuration(bad)
+
     def test_named_doppler_tool_profiles(self):
         self.assertEqual(parse().get("tool_profile"),None)
         for value in ("python-docs","context7-mcp","frontend3"):

@@ -12,9 +12,9 @@ import sys
 ALLOWED_KEYS = frozenset({
     "schema_version", "task_id", "source", "repository", "checkout_sha",
     "base_branch", "issue_key", "prompt", "model", "profile", "allowed_paths",
-    "phase", "publish", "integrations", "tool_profile", "multica_issue",
+    "phase", "publish", "integrations", "tool_profile", "multica_issue", "agent",
 })
-REQUIRED_KEYS = ALLOWED_KEYS - {"integrations", "tool_profile", "multica_issue"}
+REQUIRED_KEYS = ALLOWED_KEYS - {"integrations", "tool_profile", "multica_issue", "agent"}
 REPO_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9_.-]{0,99}\Z")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{1,47}\Z")
 ISSUE_RE = re.compile(r"[A-Z][A-Z0-9]{1,14}-[1-9][0-9]{0,9}\Z")
@@ -22,8 +22,44 @@ SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 BRANCH_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,90}\Z")
 MODELS = frozenset({"opencode/big-pickle", "opencode/ling-3.1-flash-free", "opencode/nemotron-3-ultra-free"})
 PROFILES = frozenset({"base", "python-ruff", "security-semgrep"})
+AGENTS = frozenset({"build", "python-backend", "embedded-firmware", "security-review"})
 FORBIDDEN_PARTS = frozenset({".git", ".github", ".opencode", ".env", "node_modules", "__pycache__"})
 MAX_PATCH_BYTES = 100_000
+
+
+
+# Immutable, operator-reviewed primary agents; never interpolate user text into
+# the runtime configuration. The model, scoped paths and tool profile are
+# independently validated by the existing contract.
+AGENT_DESCRIPTIONS = {
+    "python-backend": (
+        "Implement backend and Python changes with robust typing, error handling, "
+        "minimal patches and targeted tests. Preserve existing public APIs."
+    ),
+    "embedded-firmware": (
+        "Implement embedded C/C++ and hardware-facing changes with careful "
+        "resource limits, register/bus semantics and host-testable checks. "
+        "Do not assume physical hardware was tested."
+    ),
+    "security-review": (
+        "Review and repair concrete security defects with minimal code changes. "
+        "Add regression tests where possible, retain compatibility, and do not "
+        "claim scans or fixes that were not actually verified."
+    ),
+}
+
+
+def agent_configuration(name):
+    """Return only reviewed primary-agent config; build retains builtin behavior."""
+    if type(name) is not str or name not in AGENTS:
+        raise ValueError("unapproved OpenCode agent role")
+    if name == "build":
+        return {}
+    return {name: {
+        "description": name.replace("-", " ") + " task specialist",
+        "mode": "primary",
+        "prompt": AGENT_DESCRIPTIONS[name],
+    }}
 
 
 def clean_relpath(value, directory=False):
@@ -71,6 +107,8 @@ def parse_manifest(raw, allowed_repositories):
     if (not isinstance(obj["model"], str) or not isinstance(obj["profile"], str)
             or obj["model"] not in MODELS or obj["profile"] not in PROFILES):
         raise ValueError("unapproved model or profile")
+    if type(obj.get("agent", "build")) is not str or obj.get("agent", "build") not in AGENTS:
+        raise ValueError("unapproved OpenCode agent role")
     integrations = obj.get("integrations", [])
     if (not isinstance(integrations, list)
             or len(integrations) > 3
@@ -210,6 +248,7 @@ def cli():
         with out.open("a", encoding="utf-8") as f:
             for key, value in (("target", manifest["repository"]), ("sha", manifest["checkout_sha"]),
                                ("model", manifest["model"]), ("profile", manifest["profile"]),
+                               ("agent", manifest.get("agent", "build")),
                                ("task_id", manifest["task_id"])):
                 f.write(f"{key}={value}\n")
         print("Fleet contract validated", manifest["task_id"], manifest["source"])

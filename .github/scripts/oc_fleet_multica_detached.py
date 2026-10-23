@@ -65,12 +65,14 @@ def receipt_for(meta):
     doc=json.loads(path.read_text())
     manifest=doc.get("manifest")
     model, profile, tool_profile, integrations = handoff.selected_agent_configuration(meta)
+    agent=handoff.selected_agent_role(meta)
     controller.require_dispatch_policy(
         doc,meta.get("fleet_allow_safe_base_advance",False),
         meta.get("fleet_target_account"),meta.get("fleet_worker_account"))
     require(type(manifest) is dict
             and manifest.get("model", "opencode/big-pickle")==model
             and manifest.get("profile", "base")==profile
+            and manifest.get("agent", "build")==agent
             and manifest.get("tool_profile", "")==tool_profile
             and manifest.get("integrations", [])==integrations
             and manifest.get("repository","").lower() == meta["fleet_target_repo"].lower()
