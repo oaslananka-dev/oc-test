@@ -235,9 +235,9 @@ jobs:
           # Use an explicit ephemeral config, consistent with the proven F2 pilot.
           # This stays outside the target git worktree and contains no credentials.
           export OPENCODE_CONFIG_CONTENT="$(python3 - <<'PY'
-          import json, os
+          import json, os, sys
+          from pathlib import Path
           m=json.loads(os.environ["FLEET_MANIFEST_JSON"])
-          import sys
           sys.path.insert(0, str(Path(os.environ["GITHUB_WORKSPACE"])/"runner/.github/scripts"))
           from oc_fleet_contract import agent_configuration
           cfg={
@@ -253,7 +253,6 @@ jobs:
               if not os.getenv("CONTEXT7_API_KEY"):
                   raise SystemExit("Context7 selected but Doppler configuration missing")
               cfg["plugins"] = ["@upstash/context7-opencode@0.2.1"]
-          from pathlib import Path
           selected=Path(os.environ["RUNNER_TEMP"])/"fleet-selected-tools"/"config.json"
           extension=json.loads(selected.read_text(encoding="utf-8"))
           if extension.get("plugins"):
