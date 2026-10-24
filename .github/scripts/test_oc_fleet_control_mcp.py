@@ -258,6 +258,36 @@ class Tests(unittest.TestCase):
     self.assertNotIn("force-cancel",str(seen))
     transport.assert_called_once()
 
+ def test_cancel_post_race_says_too_late_without_claiming_cancelled(self):
+  doc=copy.deepcopy(GOOD)
+  doc["status"]="in_progress"
+  doc["metadata"].update({"fleet_result":"worker_dispatched",
+                          "fleet_run_id":"123","fleet_ready":False})
+  final={"id":123,"repository":{"full_name":"MakerParsDev/oc-test"},
+         "run_attempt":1,"status":"completed","conclusion":"success"}
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"cmd",side_effect=ValueError("HTTP 409")),        patch.object(c,"obj",return_value=final):
+    out=c.fleet_cancel_running(KEY,KEY,"123",True)
+    update.assert_called_once_with(KEY,"123")
+    self.assertEqual(out["state"],"cancel_too_late")
+    self.assertEqual(out["github_conclusion"],"success")
+    self.assertFalse(out["cancel_confirmed"])
+
+ def test_cancel_post_network_error_fails_closed_and_preserves_intent(self):
+  doc=copy.deepcopy(GOOD)
+  doc["status"]="in_progress"
+  doc["metadata"].update({"fleet_result":"worker_dispatched",
+                          "fleet_run_id":"123","fleet_ready":False})
+  still={"id":123,"repository":{"full_name":"MakerParsDev/oc-test"},
+         "run_attempt":1,"status":"in_progress","conclusion":None}
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"cmd",side_effect=ValueError("HTTP 403")),        patch.object(c,"obj",return_value=still):
+    with self.assertRaisesRegex(ValueError,"HTTP 403"):
+     c.fleet_cancel_running(KEY,KEY,"123",True)
+    update.assert_called_once_with(KEY,"123")
+
  def test_cancel_rejects_wrong_original_run_and_terminal_without_write(self):
   doc=copy.deepcopy(GOOD)
   doc["metadata"].update({"fleet_run_id":"123"})
