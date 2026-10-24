@@ -1,5 +1,0 @@
-ops-uat-for-issue-123
-repository=oaslananka-dev/oc-test
-connection=gh-oaslananka-dev
-branch=test/ops-123-multiaccount-write-20261025
-protected-main-untouched=true
