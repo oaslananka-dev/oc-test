@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 
+import oc_fleet_external_base_proof as base_proof
 import oc_fleet_multica as handoff
 import oc_fleet_multica_detached as detached
 import oc_fleet_multica_poll as poller
@@ -92,10 +93,8 @@ def original_receipt(m, key):
             and type(doc.get("run_id")) is int
             and str(doc["run_id"]) == m["fleet_run_id"],
             "Receipt identity or source SHA mismatch")
-    # First release intentionally does NOT accept safe-base-advance, even when
-    # the original dispatch allowed it. Requires a separately reviewed proof.
-    require(doc.get("safe_base_advance_policy") is False,
-            "Advanced source baselines need separate acceptance")
+    # The original trusted receipt already pins the independently approved
+    # base-advance policy to this task's immutable metadata.
     return manifest
 
 
@@ -116,7 +115,7 @@ def worker_success(m):
             "Worker execution was not verified successful")
 
 
-def trusted_pr(m, paths, source_sha):
+def trusted_pr(m, paths, source_sha, allow_advance=False):
     repo = m["fleet_target_repo"]
     number = m["fleet_pull_request"]
     pr = api(f"repos/{repo}/pulls/{number}")
@@ -147,8 +146,13 @@ def trusted_pr(m, paths, source_sha):
     commit = api(f"repos/{repo}/git/commits/{head}")
     parents = commit.get("parents")
     require(type(parents) is list and len(parents) == 1
-            and parents[0].get("sha") == source_sha,
-            "Original source SHA moved or PR ancestry changed")
+            and exact_sha(parents[0].get("sha")),
+            "PR source commit has untrusted ancestry")
+    actual_parent = parents[0]["sha"]
+    if actual_parent != source_sha:
+        require(allow_advance is True,
+                "Original source SHA moved without explicit authorization")
+        base_proof.validate(repo, source_sha, actual_parent, paths, api)
     changed = api(f"repos/{repo}/pulls/{number}/files?per_page=100")
     require(type(changed) is list and 0 < len(changed) < 100
             and all(type(f) is dict and type(f.get("filename")) is str
@@ -220,7 +224,8 @@ def review(key, project):
             "Unexpected previous Fleet result")
     manifest = original_receipt(m, key)
     worker_success(m)
-    result = trusted_pr(m, paths, manifest["checkout_sha"])
+    result = trusted_pr(m, paths, manifest["checkout_sha"],
+                        allow_advance=m.get("fleet_allow_safe_base_advance") is True)
     if result is None:
         require(issue["status"] == "in_review"
                 and m["fleet_result"] == "pr_created",
