@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+self=$(readlink -f -- "$0")
+base=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)
+exec python3 -B "$base/.github/scripts/oc_fleet_control_mcp.py" "$@"

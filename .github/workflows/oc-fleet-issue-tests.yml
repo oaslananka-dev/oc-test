@@ -33,6 +33,10 @@ on:
       - '.github/scripts/oc_fleet_multica_finalize.py'
       - '.github/scripts/oc_fleet_external_finalize.py'
       - '.github/scripts/oc_fleet_submit.py'
+      - '.github/scripts/oc_fleet_control_mcp.py'
+      - '.github/scripts/test_oc_fleet_control_mcp.py'
+      - 'bin/oc-fleet-mcp'
+      - 'docs/oc-fleet-control-mcp.md'
       - '.github/scripts/test_oc_fleet_submit.py'
       - '.github/scripts/oc_fleet_external_supersede.py'
       - '.github/scripts/test_oc_fleet_external_supersede.py'
@@ -98,6 +102,10 @@ on:
       - '.github/scripts/oc_fleet_multica_finalize.py'
       - '.github/scripts/oc_fleet_external_finalize.py'
       - '.github/scripts/oc_fleet_submit.py'
+      - '.github/scripts/oc_fleet_control_mcp.py'
+      - '.github/scripts/test_oc_fleet_control_mcp.py'
+      - 'bin/oc-fleet-mcp'
+      - 'docs/oc-fleet-control-mcp.md'
       - '.github/scripts/test_oc_fleet_submit.py'
       - '.github/scripts/oc_fleet_external_supersede.py'
       - '.github/scripts/test_oc_fleet_external_supersede.py'
@@ -142,9 +150,15 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+      - name: Install pinned Fleet control MCP test SDK
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/fleet-control-testvenv"
+          "$RUNNER_TEMP/fleet-control-testvenv/bin/python" -m pip install --disable-pip-version-check "mcp==2.1.1"
       - name: Contract tests and CLI syntax
         run: |
           set -euo pipefail
+          export PATH="$RUNNER_TEMP/fleet-control-testvenv/bin:$PATH"
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_issue.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_pr_triage.py -v
           python3 -m unittest discover -s .github/scripts -p test_oc_fleet_scoped_repair.py -v
