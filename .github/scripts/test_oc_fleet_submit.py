@@ -186,6 +186,98 @@ class SubmitTests(unittest.TestCase):
                                     timeout=10, check=True)
             self.assertIn("{plan,submit,status,list}", result.stdout)
 
+    def test_retry_chain_blocks_wrong_scope_and_code_failure_without_review(self):
+        parent={"identifier":KEY,"project_id":f.PROJECT,"status":"blocked",
+                "metadata":{**META,"fleet_result":"worker_failed",
+                            "fleet_run_id":"123"}}
+        run={"id":123,"status":"completed","conclusion":"failure",
+             "workflow_id":10,"head_branch":"main","event":"workflow_dispatch",
+             "run_attempt":1,"repository":{"full_name":f.WORKER_REPO}}
+        wf={"id":10,"path":".github/workflows/oc-fleet-worker.yml"}
+        def gh(path):
+            return json.dumps(wf if "/workflows/" in path else run)
+        with patch.object(f.contract,"read_issue",return_value=parent),             patch.object(f,"multica_gh",side_effect=gh),             patch("oc_fleet_multica_detached.receipt_for",
+                   return_value={"run_id":123,
+                                 "manifest":{"multica_issue":KEY}}):
+            with self.assertRaisesRegex(ValueError,"independent review"):
+                f.verified_retry_chain(options(),KEY,"123",False)
+            wrong=options();wrong.path=["different.py"]
+            with self.assertRaisesRegex(ValueError,"scope"):
+                f.verified_retry_chain(wrong,KEY,"123",True)
+            self.assertEqual(f.verified_retry_chain(options(),KEY,"123",True),[KEY])
+
+    def test_retry_chain_allows_infra_once_but_blocks_rerun_attempt(self):
+        parent={"identifier":KEY,"project_id":f.PROJECT,"status":"blocked",
+                "metadata":{**META,"fleet_result":"worker_failed",
+                            "fleet_run_id":"123"}}
+        run={"id":123,"status":"completed","conclusion":"timed_out",
+             "workflow_id":10,"head_branch":"main","event":"workflow_dispatch",
+             "run_attempt":1,"repository":{"full_name":f.WORKER_REPO}}
+        wf={"id":10,"path":".github/workflows/oc-fleet-worker.yml"}
+        with patch.object(f.contract,"read_issue",return_value=parent),             patch.object(f,"multica_gh",
+                          side_effect=lambda path:json.dumps(
+                              wf if "/workflows/" in path else run)),             patch("oc_fleet_multica_detached.receipt_for",
+                   return_value={"run_id":123,
+                                 "manifest":{"multica_issue":KEY}}):
+            self.assertEqual(f.verified_retry_chain(options(),KEY,"123",False),[KEY])
+            run["run_attempt"]=2
+            with self.assertRaisesRegex(ValueError,"attempt"):
+                f.verified_retry_chain(options(),KEY,"123",False)
+
+    def test_retry_chain_limits_two_attempts_and_rejects_newer_duplicate(self):
+        root={"identifier":"OAS-11","project_id":f.PROJECT,"status":"blocked",
+              "metadata":{**META,"fleet_result":"worker_failed","fleet_run_id":"111"}}
+        first={"identifier":"OAS-12","project_id":f.PROJECT,"status":"blocked",
+               "metadata":{**META,"fleet_retry_of":"OAS-11"}}
+        second={"identifier":"OAS-13","project_id":f.PROJECT,"status":"blocked",
+                "metadata":{**META,"fleet_result":"worker_failed",
+                            "fleet_run_id":"123","fleet_retry_of":"OAS-12"}}
+        run={"id":123,"status":"completed","conclusion":"startup_failure",
+             "workflow_id":10,"head_branch":"main","event":"workflow_dispatch",
+             "run_attempt":1,"repository":{"full_name":f.WORKER_REPO}}
+        wf={"id":10,"path":".github/workflows/oc-fleet-worker.yml"}
+        data={v["identifier"]:v for v in (root,first,second)}
+        with patch.object(f.contract,"read_issue",side_effect=lambda k:data[k]),             patch.object(f,"multica_gh",
+                          side_effect=lambda path:json.dumps(
+                              wf if "/workflows/" in path else run)),             patch("oc_fleet_multica_detached.receipt_for",
+                   return_value={"run_id":123,
+                                 "manifest":{"multica_issue":"OAS-13"}}):
+            with self.assertRaisesRegex(ValueError,"exhausted"):
+                f.verified_retry_chain(options(),"OAS-13","123",False)
+
+    def test_retry_submit_rejects_any_unrelated_duplicate_before_creation(self):
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[
+                     {"identifier":KEY,"metadata":{
+                        "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}},
+                     {"identifier":"OAS-888","metadata":{
+                        "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}}]),                 patch.object(f,"multica") as db:
+                with self.assertRaisesRegex(ValueError,"unrelated"):
+                    f.submit(options(),retry_of=KEY,expected_run_id="123")
+                db.assert_not_called()
+
+    def test_verified_retry_enqueues_fresh_record_preserving_retry_of(self):
+        with tempfile.TemporaryDirectory() as td:
+            fresh={"identifier":"OAS-999","project_id":f.PROJECT,"status":"todo",
+                   "metadata":{},"title":"Retry"}
+            writes=[]
+            def update(key,field,value,kind="string"):
+                self.assertEqual(key,"OAS-999")
+                writes.append((field,value,kind))
+                fresh["metadata"][field] = value=="true" if kind=="bool" else value
+            old={"identifier":KEY,"metadata":{
+                "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}}
+            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[old]),                 patch.object(f,"multica",return_value=json.dumps(
+                     {"identifier":"OAS-999"})) as create,                 patch.object(f,"update",side_effect=update),                 patch.object(f.contract,"read_issue",
+                              side_effect=lambda key:copy.deepcopy(fresh)),                 patch.object(f.contract,"validate_issue",return_value=None):
+                out=f.submit(options(),retry_of=KEY,expected_run_id="123")
+                self.assertEqual(out["state"],"queued")
+                self.assertEqual(out["task"],"OAS-999")
+                self.assertEqual(fresh["metadata"]["fleet_retry_of"],KEY)
+                self.assertEqual(writes[-1],("fleet_ready","true","bool"))
+                self.assertEqual(create.call_count,1)
+                self.assertFalse(fresh["metadata"]["fleet_auto_merge"])
+
     def test_read_only_status_and_list_cannot_mutate(self):
         fixture={"identifier":KEY,"project_id":f.PROJECT,"status":"in_review",
                  "title":"Task","metadata":{**META,"fleet_pull_request":"321",

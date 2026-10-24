@@ -405,6 +405,191 @@ def fleet_cancel_queued(task_id: str, confirm_task: str) -> dict:
         return {"state":"cancelled","task":task_id,"worker_started":False}
 
 
+def cancel_gate(task_id):
+    """Freeze mutable dispatch state only after receipt and GitHub agree."""
+    import oc_fleet_multica_detached as detached
+    issue,meta=task(task_id)
+    worker,rid=run_bind(issue,meta)
+    need(issue.get("status")=="in_progress"
+         and meta.get("fleet_result")=="worker_dispatched"
+         and meta.get("fleet_ready") is False
+         and not meta.get("fleet_pull_request")
+         and meta.get("fleet_merge_sha") is None,
+         "No active unpublished worker belongs to this task")
+    receipt=detached.receipt_for(meta)
+    need(receipt["manifest"].get("multica_issue")==task_id
+         and str(receipt["run_id"])==rid
+         and receipt["worker_repo"]==worker,
+         "Immutable local dispatch receipt is inconsistent")
+    run=obj(["gh","api",f"repos/{worker}/actions/runs/{rid}"])
+    wf=obj(["gh","api",f"repos/{worker}/actions/workflows/oc-fleet-worker.yml"])
+    need(run.get("id")==int(rid)
+         and run.get("repository",{}).get("full_name")==worker
+         and run.get("workflow_id")==wf.get("id")
+         and wf.get("path")==".github/workflows/oc-fleet-worker.yml"
+         and run.get("head_branch")=="main"
+         and run.get("event")=="workflow_dispatch"
+         and run.get("run_attempt")==1,
+         "GitHub run/workflow/attempt not trusted")
+    return issue,meta,run
+
+
+@SERVER.tool(description="Request ordinary GitHub cancellation for exactly one active original worker; terminal Multica cancelled is set only after independent GitHub confirmation.")
+def fleet_cancel_running(task_id: str, confirm_task: str,
+                         confirm_run_id: str, apply: bool = False) -> dict:
+    need(confirm_task==task_id,"Exact task confirmation required")
+    need(type(confirm_run_id) is str and RUN.fullmatch(confirm_run_id),
+         "Exact original worker run ID required")
+    with queue_lock():
+        _,meta,run=cancel_gate(task_id)
+        rid=meta["fleet_run_id"]
+        need(confirm_run_id==rid,"Worker run ID changed")
+        active=run.get("status") in ("queued","in_progress","waiting","requested","pending")
+        if not active:
+            return {"task":task_id,"run_id":rid,"state":"already_terminal",
+                    "conclusion":run.get("conclusion"),"apply":False}
+        need(run.get("conclusion") is None,"Nonterminal run already has conclusion")
+        if not apply:
+            return {"task":task_id,"run_id":rid,"state":"ready_to_cancel",
+                    "apply":False}
+        previous=meta.get("fleet_control_cancel_intent")
+        need(previous in (None,rid),"Different cancellation intent exists")
+        # Durable intent precedes the network write. On ambiguous POST response,
+        # do not clear it or make claims of a completed cancellation.
+        if previous is None:
+            update_cancel_intent(task_id,rid)
+        worker=meta["fleet_worker_repo"]
+        cmd(["gh","api","-X","POST",
+             f"repos/{worker}/actions/runs/{rid}/cancel"],timeout=30)
+        # API 202 is a request, not a terminal job outcome.
+        return {"task":task_id,"run_id":rid,"state":"cancel_requested",
+                "apply":True,"terminal_confirmed":False}
+
+
+def update_cancel_intent(task_id,run_id):
+    need(type(run_id) is str and bool(RUN.fullmatch(run_id)),
+         "Untrusted cancel intent run")
+    cmd(["multica","issue","metadata","set",task_id,
+         "--key","fleet_control_cancel_intent",
+         "--value",run_id,"--type","string"],timeout=30)
+
+
+@SERVER.tool(description="Read-only recovery classification for a bound worker. Code/test failures block, transient infrastructure failures may be retried as a new task only.")
+def fleet_recovery_plan(task_id: str) -> dict:
+    issue,meta=task(task_id)
+    worker,rid=run_bind(issue,meta)
+    run=obj(["gh","api",f"repos/{worker}/actions/runs/{rid}"])
+    need(run.get("id")==int(rid) and
+         run.get("repository",{}).get("full_name")==worker and
+         run.get("run_attempt")==1,"Untrusted retry provenance")
+    state=run.get("status")
+    conclusion=run.get("conclusion")
+    if meta.get("fleet_pull_request"):
+        decision="review_existing_pr"
+    elif state!="completed":
+        decision="monitor_worker"
+    elif conclusion in ("timed_out","startup_failure"):
+        decision="retry_eligible_after_receipt_and_admission"
+    elif conclusion=="cancelled":
+        decision="cancelled_no_retry"
+    elif conclusion=="failure":
+        decision="inspect_failure_before_retry"
+    elif conclusion=="success":
+        decision="await_publisher"
+    else:
+        decision="manual_review"
+    return {"task":task_id,"run_id":rid,"conclusion":conclusion,
+            "multica_status":issue.get("status"),"decision":decision,
+            "automatic_dispatch":False}
+
+
+@SERVER.tool(description="Create a new bounded Multica retry task for an independently proven failed original worker; never GitHub-rerun the same immutable run attempt.")
+def fleet_retry_failed(task_id: str, confirm_task: str, confirm_run_id: str,
+                       reviewed_failure: bool = False) -> dict:
+    need(confirm_task==task_id,"Exact task confirmation required")
+    need(type(confirm_run_id) is str and bool(RUN.fullmatch(confirm_run_id)),
+         "Exact failed run confirmation required")
+    issue,meta=task(task_id)
+    need(issue.get("project_id")==intake.PROJECT,
+         "Only main Fleet intake supports new retry records")
+    repo=repo_bind(issue,meta)
+    need(meta.get("fleet_run_id")==confirm_run_id,
+         "Original failed worker run changed")
+    paths=[meta.get("fleet_allowed_path"),*contract.extra_allowed_paths(meta)]
+    opts=argparse.Namespace(
+        repo=repo,issue=int(meta["fleet_target_issue"]),path=paths,
+        model=meta.get("fleet_model","opencode/big-pickle"),
+        profile=meta.get("fleet_profile","base"),
+        agent=meta.get("fleet_agent","build"))
+    value=intake.submit(opts,retry_of=task_id,expected_run_id=confirm_run_id,
+                        reviewed_failure=reviewed_failure)
+    need(value.get("task")!=task_id and value.get("state")=="queued",
+         "New retry task not confirmed")
+    return {"state":"queued","retry_of":task_id,
+            "original_run_id":confirm_run_id,"new_task":value["task"],
+            "model":opts.model,"dispatch":"existing protected Fleet dispatcher"}
+
+
+@SERVER.tool(description="Read-only bounded Fleet recovery plan: no new tasks or repeated runs; code failures stay blocked.")
+def fleet_autopilot_plan(limit: int = 40) -> dict:
+    need(type(limit) is int and 1<=limit<=100,"limit must be 1..100")
+    candidates=[]
+    for item in combined_inventory():
+        meta=item.get("metadata") or {}
+        if type(meta) is not dict or not meta.get("fleet_target_repo"):
+            continue
+        state=item.get("status")
+        result=meta.get("fleet_result")
+        if state=="in_progress" and result=="worker_dispatched":
+            action="observe_bound_worker"
+        elif state=="in_review" and result=="pr_created":
+            action="review_pr_ci"
+        elif state=="blocked" and result=="worker_failed":
+            action="classify_failed_run_before_retry"
+        elif state=="todo" and meta.get("fleet_ready") is True:
+            action="await_existing_dispatcher"
+        elif state=="cancelled":
+            action="terminal_do_not_restart"
+        else:
+            continue
+        candidates.append({"task":item.get("identifier"),
+                           "project_id":item.get("project_id"),
+                           "action":action,"status":state,
+                           "worker_run":meta.get("fleet_run_id"),
+                           "pull_request":meta.get("fleet_pull_request")})
+    return {"mode":"read_only_decision_support",
+            "concurrent_capacity":4,"total":len(candidates),
+            "tasks":candidates[:limit],"truncated":len(candidates)>limit}
+
+
+@SERVER.tool(description="Apply at most one transient infrastructure retry from verified failed worker evidence, or preview the next safe recovery. No code-failure auto-retry.")
+def fleet_autopilot_step(apply: bool = False) -> dict:
+    # This is agent-invoked, never an unsupervised second daemon. Eligibility is
+    # rechecked under the canonical enqueue lock before any retry task is made.
+    # GitHub failure (code/tests) is *not* considered transient.
+    plans=fleet_autopilot_plan(limit=100)
+    need(not plans["truncated"],"Partial task inventory: refuse automatic actions")
+    for item in plans["tasks"]:
+        if item["action"]!="classify_failed_run_before_retry":
+            continue
+        key=item["task"]
+        issue,meta=task(key)
+        if issue.get("project_id")!=intake.PROJECT:
+            continue
+        proof=fleet_recovery_plan(key)
+        if proof["decision"]!="retry_eligible_after_receipt_and_admission":
+            continue
+        rid=proof["run_id"]
+        if not apply:
+            return {"state":"candidate","task":key,"run_id":rid,
+                    "reason":proof["conclusion"],"apply":False,
+                    "would_retry_as_new_multica_task":True}
+        result=fleet_retry_failed(key,key,rid,reviewed_failure=False)
+        return {"state":"retry_queued","task":key,"original_run_id":rid,
+                "new_task":result["new_task"],"apply":True}
+    return {"state":"no_safe_retry_candidate","apply":False}
+
+
 @SERVER.tool(description="Merge a verified bound PR only through normal protected GitHub checks and exact HEAD; no --admin or auto-merge. Explicit review confirmation required.")
 def fleet_merge_reviewed_pr(task_id: str, confirm_head_sha: str,
                             confirm_task: str, reviewed: bool = False) -> dict:
