@@ -459,8 +459,29 @@ def fleet_cancel_running(task_id: str, confirm_task: str,
         if previous is None:
             update_cancel_intent(task_id,rid)
         worker=meta["fleet_worker_repo"]
-        cmd(["gh","api","-X","POST",
-             f"repos/{worker}/actions/runs/{rid}/cancel"],timeout=30)
+        try:
+            cmd(["gh","api","-X","POST",
+                 f"repos/{worker}/actions/runs/{rid}/cancel"],timeout=30)
+        except ValueError:
+            # GitHub returns 409 when a worker has just reached terminal state
+            # between read-only preflight and cancellation request. Re-read
+            # authoritative run; do not claim cancellation from the error.
+            latest=obj(["gh","api",f"repos/{worker}/actions/runs/{rid}"])
+            need(latest.get("id")==int(rid)
+                 and latest.get("repository",{}).get("full_name")==worker
+                 and latest.get("run_attempt")==1,
+                 "Ambiguous cancellation error; verify bound run manually")
+            if latest.get("status")=="completed" and latest.get("conclusion") in (
+                    "success","failure","cancelled","timed_out",
+                    "startup_failure","action_required","skipped"):
+                return {"task":task_id,"run_id":rid,
+                        "state":"cancel_too_late",
+                        "github_conclusion":latest["conclusion"],
+                        "apply":True,
+                        "cancel_confirmed":latest["conclusion"]=="cancelled"}
+            # Never convert permission, transport or 5xx failures into
+            # a confirmed cancellation; the intent remains for reconciliation.
+            raise
         # API 202 is a request, not a terminal job outcome.
         return {"task":task_id,"run_id":rid,"state":"cancel_requested",
                 "apply":True,"terminal_confirmed":False}
