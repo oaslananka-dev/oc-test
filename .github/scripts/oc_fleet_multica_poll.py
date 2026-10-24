@@ -65,6 +65,54 @@ def worker_slots(worker_repo, budget):
     return max(0,budget-busy)
 
 
+def file_scope(meta):
+    """Return validated, case-normalized file/directory scopes in one target repo."""
+    repo=meta["fleet_target_repo"].lower()
+    paths=[meta["fleet_allowed_path"],*handoff.extra_allowed_paths(meta)]
+    if any(type(path) is not str or not handoff.clean_relpath(
+            path,directory=path.endswith("/")) for path in paths):
+        raise ValueError("Invalid reserved worker file scope")
+    return repo, tuple(path.casefold() for path in paths)
+
+
+def file_scopes_overlap(a,b):
+    """Exact files and directory descendants conflict, but siblings do not."""
+    if a[0] != b[0]:
+        return False
+    for left in a[1]:
+        for right in b[1]:
+            if (left == right
+                    or (left.endswith("/") and right.startswith(left))
+                    or (right.endswith("/") and left.startswith(right))):
+                return True
+    return False
+
+
+def occupied_file_scopes(project):
+    """Reserve paths from active workers and unmerged fleet PRs; fail on partial inventory."""
+    found=subprocess.run([
+        "multica","issue","list","--project",project,"--limit","100",
+        "--fields","identifier,status,metadata","--output","json"
+    ],capture_output=True,text=True,check=True,timeout=40)
+    data=json.loads(found.stdout)
+    if (type(data) is not dict or data.get("has_more") is not False
+            or type(data.get("issues")) is not list or len(data["issues"]) > 100):
+        raise ValueError("Incomplete active file-scope inventory")
+    occupied=[]
+    for issue in data["issues"]:
+        if type(issue) is not dict:
+            raise ValueError("Invalid active task")
+        if issue.get("status") not in ("in_progress","in_review"):
+            continue
+        meta=issue.get("metadata")
+        if type(meta) is not dict:
+            raise ValueError("Incomplete active task metadata")
+        if meta.get("fleet_result") not in ("worker_dispatched","pr_created"):
+            continue
+        occupied.append(file_scope(meta))
+    return occupied
+
+
 def controller_receipt(meta):
     identity = meta["fleet_target_repo"].lower() + "#" + meta["fleet_target_issue"]
     name = hashlib.sha256(identity.encode()).hexdigest()[:24] + ".json"
@@ -142,6 +190,9 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     selected = []
     seen_targets = set()
     worker_available = {}
+    # Only inspect active reservations when there is a genuinely new task.
+    # Plan mode and already-claimed/received work never make this extra query.
+    occupied = None if execute else []
     for item in eligible:
         key = item.get("identifier")
         if not isinstance(key, str) or not handoff.ISSUE_RE.fullmatch(key):
@@ -158,6 +209,12 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
         if target in seen_targets:
             print("SKIP_DUPLICATE_TARGET", key)
             continue
+        if occupied is None:
+            occupied=occupied_file_scopes(project)
+        scope=file_scope(meta)
+        if any(file_scopes_overlap(scope,held) for held in occupied):
+            print("SKIP_OVERLAPPING_PATH", key,flush=True)
+            continue
         worker_repo=meta["fleet_worker_repo"]
         if execute:
             if worker_repo not in worker_available:
@@ -167,6 +224,7 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
                 continue
             worker_available[worker_repo]-=1
         seen_targets.add(target)
+        occupied.append(scope)
         selected.append(fresh)
         if len(selected) == max_parallel:
             break
