@@ -39,9 +39,14 @@ merge SHA. The action uses read-only GitHub REST APIs:
   must be complete, with **no failed check anywhere**, and the issue
   must be closed
 
-This first version refuses safe-base-advance PRs and protection policies
-with no independently readable required checks. A former human merge may
-have bypassed protection: GitHub's `merged=true` flag alone is never proof
+Original-receipt-authorized `fleet_allow_safe_base_advance=true` is also
+supported, **only** when the PR's one parent is a bounded descendant of the
+original checkout SHA and the Git **blob/tree identity of each approved path**
+is unchanged between old and advanced baselines. Use immutable Git commit
+objects and compare/ancestry evidence; never accept PR body claims or merely
+a changed base SHA. The default without opt-in remains an exact-parent match.
+Policies with no independently readable required checks still fail closed.
+A former human merge may have bypassed protection: GitHub's `merged=true` flag alone is never proof
 of security acceptance. PRs with more than 99 check runs/files or
 ambiguous evidence are deliberately blocked.
 
