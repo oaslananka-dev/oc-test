@@ -38,7 +38,7 @@ def exact_sha(value):
     return type(value) is str and bool(SHA.fullmatch(value))
 
 
-def get_task(key, project):
+def get_task(key, project, allowed_statuses=("in_review", "done")):
     require(type(key) is str and handoff.ISSUE_RE.fullmatch(key),
             "Invalid task key")
     require(type(project) is str and handoff.UUID_RE.fullmatch(project),
@@ -49,7 +49,7 @@ def get_task(key, project):
     m = issue.get("metadata")
     require(type(m) is dict, "Missing metadata")
     require(issue.get("assignee_type") != "agent"
-            and issue.get("status") in ("in_review", "done"),
+            and issue.get("status") in allowed_statuses,
             "Unexpected Multica issue state")
     require(type(m.get("fleet_target_repo")) is str, "Bad target repository")
     require(m.get("fleet_external_pr_only") is True
