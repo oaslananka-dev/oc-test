@@ -35,10 +35,21 @@ def options():
     return argparse.Namespace(repo=REPO, issue=ISSUE, path=list(PATHS),
                               model="opencode/big-pickle", profile="base",
                               agent="build",
+                              worker_repo=f.WORKER_REPO,
+                              worker_account=f.WORKER_ACCOUNT,
                               confirm_target=f"{REPO}#{ISSUE}")
 
 
 class SubmitTests(unittest.TestCase):
+    def setUp(self):
+        self.pool = patch.object(f.pool, "choose", return_value={
+            "repo": f.WORKER_REPO, "account": f.WORKER_ACCOUNT,
+            "busy": 0, "global_active": 0,
+            "global_free": 4, "global_limit": 4,
+        })
+        self.pool.start()
+        self.addCleanup(self.pool.stop)
+
     def test_local_path_validation_and_non_pilot_only(self):
         for paths in (
             [], ["src/", "src/a.py"], ["src/", "src/"],
@@ -85,6 +96,24 @@ class SubmitTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     f.preview(REPO, ISSUE, PATHS, "opencode/big-pickle",
                               "base", "build")
+
+    def test_cross_account_preflight_binds_both_repo_and_account(self):
+        second={"repo":"boardreadyops/oc-test","account":"boardreadyops",
+                "busy":1,"global_active":1,"global_free":3,"global_limit":4}
+        evidence={"status":"DRY_RUN","repo":REPO,"issue":ISSUE,
+                  "scope":PATHS,"sha":"b"*40}
+        with patch.object(f.pool,"choose",return_value=second),             patch.object(f,"run",return_value=json.dumps(evidence)) as runner:
+            result=f.preview(REPO,ISSUE,PATHS,"opencode/big-pickle",
+                             "base","build")
+            self.assertEqual(result["worker_repo"],"boardreadyops/oc-test")
+            self.assertEqual(result["worker_account"],"boardreadyops")
+            args=runner.call_args.args[0]
+            self.assertEqual(args[args.index("--worker-repo")+1],
+                             "boardreadyops/oc-test")
+            self.assertEqual(args[args.index("--worker-account")+1],
+                             "boardreadyops")
+            self.assertIn("--external-pr-only",args)
+            self.assertIn("--require-approved-target",args)
 
     def test_preview_failure_cannot_create_task(self):
         with patch.object(f, "run", side_effect=ValueError("not allowed")),              patch.object(f, "multica") as db:
@@ -136,7 +165,8 @@ class SubmitTests(unittest.TestCase):
             def read(key):
                 self.assertEqual(key,KEY)
                 return copy.deepcopy(self.issue)
-            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40}),                  patch.object(f,"list_raw",return_value=[]),                  patch.object(f,"multica",return_value=json.dumps({"identifier":KEY})) as create,                  patch.object(f,"update",side_effect=update),                  patch.object(f.contract,"read_issue",side_effect=read),                  patch.object(f.contract,"validate_issue",return_value=None) as validation:
+            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40, "worker_repo":f.WORKER_REPO,
+                     "worker_account":f.WORKER_ACCOUNT}),                  patch.object(f,"list_raw",return_value=[]),                  patch.object(f,"multica",return_value=json.dumps({"identifier":KEY})) as create,                  patch.object(f,"update",side_effect=update),                  patch.object(f.contract,"read_issue",side_effect=read),                  patch.object(f.contract,"validate_issue",return_value=None) as validation:
                 res=f.submit(options())
                 self.assertEqual(res["state"],"queued")
                 self.assertEqual(res["ready"],True)
@@ -161,14 +191,16 @@ class SubmitTests(unittest.TestCase):
                 if field=="fleet_profile":
                     raise RuntimeError("metadata failure")
                 issue["metadata"][field]=value
-            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40}),                  patch.object(f,"list_raw",return_value=[]),                  patch.object(f,"multica",return_value=json.dumps({"identifier":KEY})),                  patch.object(f,"update",side_effect=update):
+            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40, "worker_repo":f.WORKER_REPO,
+                     "worker_account":f.WORKER_ACCOUNT}),                  patch.object(f,"list_raw",return_value=[]),                  patch.object(f,"multica",return_value=json.dumps({"identifier":KEY})),                  patch.object(f,"update",side_effect=update):
                 with self.assertRaisesRegex(ValueError,"partially staged"):
                     f.submit(options())
             self.assertNotIn(("fleet_ready","true"),writes)
 
     def test_duplicate_or_locked_submission_never_creates_issue(self):
         with tempfile.TemporaryDirectory() as td:
-            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40}),                  patch.object(f,"list_raw",return_value=[{
+            with patch.object(f,"LOCK",Path(td)/"lock"),                  patch.object(f,"preview",return_value={"base_sha":"a"*40, "worker_repo":f.WORKER_REPO,
+                     "worker_account":f.WORKER_ACCOUNT}),                  patch.object(f,"list_raw",return_value=[{
                      "identifier":"OAS-31","metadata":{
                          "fleet_target_repo":REPO,
                          "fleet_target_issue":str(ISSUE)}}]),                  patch.object(f,"multica") as create:
@@ -184,7 +216,7 @@ class SubmitTests(unittest.TestCase):
             result = subprocess.run([str(link), "--help"],
                                     cwd=td, text=True, capture_output=True,
                                     timeout=10, check=True)
-            self.assertIn("{plan,submit,status,list}", result.stdout)
+            self.assertIn("{plan,submit,status,list,workers}", result.stdout)
 
     def test_retry_chain_blocks_wrong_scope_and_code_failure_without_review(self):
         parent={"identifier":KEY,"project_id":f.PROJECT,"status":"blocked",
@@ -247,13 +279,18 @@ class SubmitTests(unittest.TestCase):
 
     def test_retry_submit_rejects_any_unrelated_duplicate_before_creation(self):
         with tempfile.TemporaryDirectory() as td:
-            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[
+            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40, "worker_repo":f.WORKER_REPO,
+                     "worker_account":f.WORKER_ACCOUNT}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[
                      {"identifier":KEY,"metadata":{
                         "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}},
                      {"identifier":"OAS-888","metadata":{
                         "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}}]),                 patch.object(f,"multica") as db:
-                with self.assertRaisesRegex(ValueError,"unrelated"):
-                    f.submit(options(),retry_of=KEY,expected_run_id="123")
+                with patch.object(f.contract,"read_issue",
+                                  return_value={"identifier":KEY,
+                                    "project_id":f.PROJECT,
+                                    "metadata":{"fleet_worker_repo":f.WORKER_REPO}}):
+                    with self.assertRaisesRegex(ValueError,"unrelated"):
+                        f.submit(options(),retry_of=KEY,expected_run_id="123")
                 db.assert_not_called()
 
     def test_verified_retry_enqueues_fresh_record_preserving_retry_of(self):
@@ -267,7 +304,8 @@ class SubmitTests(unittest.TestCase):
                 fresh["metadata"][field] = value=="true" if kind=="bool" else value
             old={"identifier":KEY,"metadata":{
                 "fleet_target_repo":REPO,"fleet_target_issue":str(ISSUE)}}
-            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[old]),                 patch.object(f,"multica",return_value=json.dumps(
+            with patch.object(f,"LOCK",Path(td)/"lock"),                 patch.object(f,"preview",return_value={"base_sha":"a"*40, "worker_repo":f.WORKER_REPO,
+                     "worker_account":f.WORKER_ACCOUNT}),                 patch.object(f,"verified_retry_chain",return_value=[KEY]),                 patch.object(f,"list_raw",return_value=[old]),                 patch.object(f,"multica",return_value=json.dumps(
                      {"identifier":"OAS-999"})) as create,                 patch.object(f,"update",side_effect=update),                 patch.object(f.contract,"read_issue",
                               side_effect=lambda key:copy.deepcopy(fresh)),                 patch.object(f.contract,"validate_issue",return_value=None):
                 out=f.submit(options(),retry_of=KEY,expected_run_id="123")

@@ -85,8 +85,12 @@ mechanism. Nothing in `oc-fleet submit` directly changes those policies.
 - `--path` must be a safe explicit source file/directory, repeatable up to
   12 non-overlapping entries. Hidden files, `.github`, traversal, arbitrary
   shell execution and unapproved tool profiles are not admitted.
-- Default free model: `opencode/big-pickle`. Alternative models/agents must
-  be allowed by the existing contract. Production capacity stays four.
+- Default free model: `opencode/big-pickle`. The worker account and repo
+  are chosen from the existing Doppler-approved, verified multi-account pool
+  and written to each Multica task; see
+  [multi-account worker pool](oc-fleet-worker-pool.md).
+  Alternative models/agents must be allowed by the existing contract.
+  Production capacity stays four.
 - Pilot self-repository requests, external auto-merge, private targets and
   unapproved repos fail closed. Higher concurrency remains out of scope.
 - No background daemon or extra timer is introduced by this CLI.

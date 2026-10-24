@@ -32,6 +32,9 @@ class PollTests(unittest.TestCase):
                                    side_effect=lambda repo,budget:budget)
         self.capacity.start()
         self.addCleanup(self.capacity.stop)
+        self.global_budget = patch("oc_fleet_pool.global_slots", return_value=4)
+        self.global_budget.start()
+        self.addCleanup(self.global_budget.stop)
         self.scopes=patch.object(poller,"occupied_file_scopes",return_value=[])
         self.scopes_mock=self.scopes.start()
         self.addCleanup(self.scopes.stop)
@@ -52,6 +55,18 @@ class PollTests(unittest.TestCase):
                           return_value=MagicMock(stdout='{"has_more":true,"issues":[]}')):
             with self.assertRaisesRegex(ValueError,"Incomplete"):
                 poller.ready_issues(PROJECT)
+
+    def test_global_four_worker_budget_blocks_other_account(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            second=dict(ISSUE)
+            second["metadata"]={**META,
+                "fleet_worker_repo":"boardreadyops/oc-test",
+                "fleet_worker_account":"boardreadyops"}
+            with patch.object(poller,"ready_issues",return_value=[second]),                 patch.object(poller.handoff,"read_issue",return_value=second),                 patch.object(poller,"controller_receipt",return_value=root/"missing"),                 patch("oc_fleet_pool.global_slots",return_value=0),                 patch.object(poller,"dispatch_one") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root),"no_capacity")
+                dispatch.assert_not_called()
+                self.assertEqual(list(root.iterdir()),[])
 
     def test_no_eligible_work_is_inert(self):
         with tempfile.TemporaryDirectory() as temp:

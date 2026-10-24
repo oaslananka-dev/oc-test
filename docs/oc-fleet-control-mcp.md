@@ -66,7 +66,7 @@ codex mcp add oc-fleet-control -- ssh -T amd@amd2700x \
 
 ## Available operations
 
-- **Observe:** `fleet_health`, `fleet_list`, `fleet_status`,
+- **Observe:** `fleet_health`, `fleet_worker_pool`, `fleet_list`, `fleet_status`,
   `fleet_run`, `fleet_logs`, `fleet_telemetry`, `fleet_pr`,
   `fleet_checks`, `fleet_recovery_plan`,
   `fleet_autopilot_plan`.
@@ -166,4 +166,4 @@ never run on the operator PC.
   controller only under `~/.local/state/oc-fleet/dispatch.lock`.
 - Keep existing timer, Multica and free-model configurations unchanged.
 - Avoid adding the same MCP server to multiple profiles unnecessarily;
-  23 tools may use context tokens and there is no need for paid providers.
+  24 tools may use context tokens and there is no need for paid providers.

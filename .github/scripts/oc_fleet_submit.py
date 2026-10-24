@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 import oc_fleet_multica as contract
+import oc_fleet_pool as pool
 from oc_fleet_contract import clean_relpath, AGENTS, MODELS, PROFILES
 
 PROJECT = "0506e0e5-01a7-4de9-b63b-67e993809721"
@@ -65,14 +66,16 @@ def validate_inputs(repo, issue, paths, model, profile, agent):
     return paths
 
 
-def preview(repo, issue, paths, model, profile, agent):
+def preview(repo, issue, paths, model, profile, agent, required_worker=None):
     validate_inputs(repo, issue, paths, model, profile, agent)
+    selected = pool.choose(repo, issue, required_worker=required_worker)
     # Use the *same* admission path as production worker dispatch.
     # --require-approved-target disallows auto-whitelisting repositories.
     argv = [
         sys.executable, str(Path(__file__).with_name("oc_fleet_issue.py")),
         "run", "--repo", repo, "--issue", str(issue),
-        "--worker-repo", WORKER_REPO, "--worker-account", WORKER_ACCOUNT,
+        "--worker-repo", selected["repo"],
+        "--worker-account", selected["account"],
         "--target-account", repo.split("/")[0],
         "--model", model, "--profile", profile, "--agent", agent,
         "--external-pr-only", "--require-approved-target", "--dry-run",
@@ -90,7 +93,10 @@ def preview(repo, issue, paths, model, profile, agent):
     return {
         "state": "ready_to_submit", "repo": repo, "github_issue": issue,
         "paths": paths, "model": model, "profile": profile, "agent": agent,
-        "base_sha": docs[0]["sha"], "worker_repo": WORKER_REPO,
+        "base_sha": docs[0]["sha"], "worker_repo": selected["repo"],
+        "worker_account": selected["account"],
+        "pool_global_active": selected["global_active"],
+        "pool_global_free": selected["global_free"],
         "project_id": PROJECT, "auto_merge": False,
         "dispatch": "bounded scheduled controller, not immediate",
     }
@@ -145,6 +151,8 @@ def task_view(issue):
         "task": issue.get("identifier"), "status": issue.get("status"),
         "title": issue.get("title"),
         "repo": meta.get("fleet_target_repo"),
+        "worker_repo": meta.get("fleet_worker_repo"),
+        "worker_account": meta.get("fleet_worker_account"),
         "github_issue": meta.get("fleet_target_issue"),
         "worker_run": meta.get("fleet_run_id"),
         "pull_request": meta.get("fleet_pull_request"),
@@ -191,7 +199,8 @@ def verified_retry_chain(opts, retry_of, expected_run_id, reviewed_failure):
                     and meta.get("fleet_ready") is False
                     and not meta.get("fleet_control_cancel_intent"),
                     "Retry source is not an original failed worker run")
-            require(meta.get("fleet_worker_repo")==WORKER_REPO
+            require(meta.get("fleet_worker_repo")==opts.worker_repo
+                    and meta.get("fleet_worker_account")==opts.worker_account
                     and meta.get("fleet_model")==opts.model
                     and meta.get("fleet_profile")==opts.profile
                     and meta.get("fleet_agent")==opts.agent
@@ -203,11 +212,11 @@ def verified_retry_chain(opts, retry_of, expected_run_id, reviewed_failure):
                     and str(receipt["run_id"])==expected_run_id,
                     "Immutable original dispatch receipt mismatch")
             run=json.loads(multica_gh(
-                f"repos/{WORKER_REPO}/actions/runs/{expected_run_id}"))
+                f"repos/{opts.worker_repo}/actions/runs/{expected_run_id}"))
             wf=json.loads(multica_gh(
-                f"repos/{WORKER_REPO}/actions/workflows/oc-fleet-worker.yml"))
+                f"repos/{opts.worker_repo}/actions/workflows/oc-fleet-worker.yml"))
             require(run.get("id")==int(expected_run_id)
-                    and run.get("repository",{}).get("full_name")==WORKER_REPO
+                    and run.get("repository",{}).get("full_name")==opts.worker_repo
                     and run.get("workflow_id")==wf.get("id")
                     and wf.get("path")==".github/workflows/oc-fleet-worker.yml"
                     and run.get("event")=="workflow_dispatch"
@@ -244,8 +253,18 @@ def submit(opts, retry_of=None, expected_run_id=None,
         except BlockingIOError as err:
             raise ValueError("Dispatcher active, retry when lock is free") from err
         # Keep the admission decision and queued task creation serialized.
+        previous_worker = None
+        if retry_of:
+            original = contract.read_issue(retry_of)
+            require(original.get("project_id") == PROJECT
+                    and isinstance(original.get("metadata"), dict),
+                    "Untrusted retry source")
+            previous_worker = original["metadata"].get("fleet_worker_repo")
         proof = preview(opts.repo, opts.issue, opts.path,
-                        opts.model, opts.profile, opts.agent)
+                        opts.model, opts.profile, opts.agent,
+                        required_worker=previous_worker)
+        opts.worker_repo = proof["worker_repo"]
+        opts.worker_account = proof["worker_account"]
         chain = (verified_retry_chain(opts,retry_of,expected_run_id,reviewed_failure)
                  if retry_of else [])
         found = duplicates(list_raw(), opts.repo, opts.issue)
@@ -280,8 +299,8 @@ def submit(opts, retry_of=None, expected_run_id=None,
                 "fleet_target_repo": opts.repo,
                 "fleet_target_issue": str(opts.issue),
                 "fleet_target_account": opts.repo.split("/")[0],
-                "fleet_worker_repo": WORKER_REPO,
-                "fleet_worker_account": WORKER_ACCOUNT,
+                "fleet_worker_repo": proof["worker_repo"],
+                "fleet_worker_account": proof["worker_account"],
                 "fleet_allowed_path": opts.path[0],
                 "fleet_allowed_paths": json.dumps(opts.path[1:], separators=(",", ":")),
                 "fleet_model": opts.model,
@@ -338,6 +357,7 @@ def main(argv=None):
     status = subs.add_parser("status", help="Show one Multica task")
     status.add_argument("task")
     subs.add_parser("list", help="Summarize project tasks")
+    subs.add_parser("workers", help="Read authenticated worker pool and global capacity")
     args = parser.parse_args(argv)
     if args.command in ("plan", "submit"):
         validate_inputs(args.repo, args.issue, args.path, args.model,
@@ -349,6 +369,8 @@ def main(argv=None):
         else:
             result = preview(args.repo, args.issue, args.path, args.model,
                              args.profile, args.agent)
+    elif args.command == "workers":
+        result = pool.snapshot()
     elif args.command == "status":
         require(bool(contract.ISSUE_RE.fullmatch(args.task)), "Invalid task ID")
         d = contract.read_issue(args.task)

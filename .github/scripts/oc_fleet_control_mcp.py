@@ -17,6 +17,7 @@ import sys
 from mcp.server.mcpserver import MCPServer
 
 import oc_fleet_submit as intake
+import oc_fleet_pool as pool
 import oc_fleet_multica as contract
 from oc_fleet_contract import clean_relpath
 
@@ -64,9 +65,11 @@ def obj(argv, timeout=45, env=None):
 
 def bound_worker_github_env(worker_repo):
     """Choose actual worker repo identity for Actions writes, never primary GH auth."""
-    need(worker_repo == intake.WORKER_REPO,
-         "Worker repository must match original trusted Fleet account")
-    result=subprocess.run(["gh","auth","token","--user",intake.WORKER_ACCOUNT],
+    need(type(worker_repo) is str
+         and worker_repo.casefold() in {r.casefold() for r in pool.registered()},
+         "Worker repository is not in the approved pool")
+    account=worker_repo.split("/",1)[0]
+    result=subprocess.run(["gh","auth","token","--user",account],
                           capture_output=True,text=True,timeout=15,check=True)
     token=result.stdout.strip()
     need(type(token) is str and len(token)>16
@@ -76,7 +79,7 @@ def bound_worker_github_env(worker_repo):
     environment["GH_TOKEN"]=token
     # Cross-check the token's *actual* GitHub account, not just a gh config label.
     who=obj(["gh","api","user"],timeout=25,env=environment)
-    need(who.get("login")==intake.WORKER_ACCOUNT,
+    need(who.get("login")==account,
          "Worker Actions write credential belongs to wrong GitHub account")
     return environment
 
@@ -114,8 +117,9 @@ def run_bind(issue, meta):
     repo_bind(issue, meta)
     worker = meta.get("fleet_worker_repo")
     run_id = meta.get("fleet_run_id")
-    need(worker == intake.WORKER_REPO and type(run_id) is str
-         and bool(RUN.fullmatch(run_id)),
+    need(type(worker) is str
+         and worker.casefold() in {r.casefold() for r in pool.registered()}
+         and type(run_id) is str and bool(RUN.fullmatch(run_id)),
          "Task has no bound approved worker run")
     return worker, run_id
 
@@ -161,6 +165,7 @@ def bounded_view(issue, meta):
         **intake.task_view(issue),
         "project_id": issue["project_id"],
         "worker_repo": meta.get("fleet_worker_repo"),
+        "worker_account": meta.get("fleet_worker_account"),
         "allowed_path": meta.get("fleet_allowed_path"),
         "allowed_extra_paths": meta.get("fleet_allowed_paths"),
         "model": meta.get("fleet_model"),
@@ -218,6 +223,11 @@ def fleet_health() -> dict:
         "timers":timers,"concurrent_worker_ceiling":4,
         "model_default":"opencode/big-pickle","merge_policy":"manual protected",
     }
+
+
+@SERVER.tool(description="Read-only authenticated pool: registered GitHub worker accounts, current active GitHub Actions runs and shared four-worker capacity.")
+def fleet_worker_pool() -> dict:
+    return pool.snapshot()
 
 
 @SERVER.tool(description="List Fleet tasks from the canonical Multica queue (read-only).")

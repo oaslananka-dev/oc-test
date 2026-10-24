@@ -250,6 +250,14 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     selected = []
     seen_targets = set()
     worker_available = {}
+    # An account/repository-specific budget alone can exceed the fleet-wide
+    # free ceiling after multiple cycles. Enforce one shared pool budget.
+    # Read-only plans do not query worker pools or mutate reservation state.
+    if execute:
+        import oc_fleet_pool
+        global_available = min(max_parallel, oc_fleet_pool.global_slots())
+    else:
+        global_available = max_parallel
     # Only inspect active reservations when there is a genuinely new task.
     # Plan mode and already-claimed/received work never make this extra query.
     occupied = None if execute else []
@@ -284,19 +292,23 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
             continue
         worker_repo=meta["fleet_worker_repo"]
         if execute:
+            if global_available <= 0:
+                print("SKIP_GLOBAL_CAPACITY", key, flush=True)
+                continue
             if worker_repo not in worker_available:
                 worker_available[worker_repo]=worker_slots(worker_repo,max_parallel)
             if worker_available[worker_repo] <= 0:
                 print("SKIP_WORKER_AT_CAPACITY",key,worker_repo,flush=True)
                 continue
             worker_available[worker_repo]-=1
+            global_available-=1
         seen_targets.add(target)
         occupied.append(scope)
         selected.append(fresh)
         if len(selected) == max_parallel:
             break
     if not selected:
-        if any(v == 0 for v in worker_available.values()):
+        if global_available <= 0 or any(v == 0 for v in worker_available.values()):
             return "no_capacity"
         return "no_new_work"
     if not execute:
