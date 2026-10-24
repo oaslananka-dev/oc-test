@@ -501,13 +501,14 @@ def fleet_supersede_reviewed(task_id: str, replacement_pr: int,
          and replacement_pr<1000000000, "Invalid replacement PR")
     need(type(replacement_merge_sha) is str and bool(SHA.fullmatch(replacement_merge_sha)),
          "Exact replacement merge SHA required")
+    if apply:
+        need(semantic_resolution_reviewed is True,
+             "Specific semantic equivalence review required")
     issue,_=task(task_id)
     args=["--issue",task_id,"--project-id",issue["project_id"],
           "--replacement-pr",str(replacement_pr),
           "--replacement-merge-sha",replacement_merge_sha]
     if apply:
-        need(semantic_resolution_reviewed is True,
-             "Specific semantic equivalence review required")
         args += ["--apply","--confirm-issue",task_id,
                  "--confirm-replacement-pr",str(replacement_pr),
                  "--confirm-merge-sha",replacement_merge_sha,

@@ -156,7 +156,7 @@ class Tests(unittest.TestCase):
    cli.assert_not_called()
 
  def test_finalizer_defaults_to_dry_run(self):
-  with patch.object(c,"terminal_script",return_value={"state":"waiting"}) as fn:
+  with patch.object(c,"terminal_script",return_value={"state":"waiting"}) as fn,        patch.object(c,"task",return_value=(copy.deepcopy(GOOD),copy.deepcopy(GOOD["metadata"]))):
    val=c.fleet_finalize_reviewed_merge(KEY,"a"*40,KEY)
    self.assertFalse(val["apply"])
    self.assertNotIn("--apply",fn.call_args.args[1])
