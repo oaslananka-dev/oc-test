@@ -56,10 +56,29 @@ def cmd(argv, timeout=45, limit=MAX_TEXT, env=None):
     return p.stdout[:limit]
 
 
-def obj(argv, timeout=45):
-    data = json.loads(cmd(argv, timeout=timeout, limit=150000))
+def obj(argv, timeout=45, env=None):
+    data = json.loads(cmd(argv, timeout=timeout, limit=150000, env=env))
     need(type(data) is dict, "Unexpected structured response")
     return data
+
+
+def bound_worker_github_env(worker_repo):
+    """Choose actual worker repo identity for Actions writes, never primary GH auth."""
+    need(worker_repo == intake.WORKER_REPO,
+         "Worker repository must match original trusted Fleet account")
+    result=subprocess.run(["gh","auth","token","--user",intake.WORKER_ACCOUNT],
+                          capture_output=True,text=True,timeout=15,check=True)
+    token=result.stdout.strip()
+    need(type(token) is str and len(token)>16
+         and "\n" not in token and "\r" not in token,
+         "Worker account credentials not available")
+    environment=os.environ.copy()
+    environment["GH_TOKEN"]=token
+    # Cross-check the token's *actual* GitHub account, not just a gh config label.
+    who=obj(["gh","api","user"],timeout=25,env=environment)
+    need(who.get("login")==intake.WORKER_ACCOUNT,
+         "Worker Actions write credential belongs to wrong GitHub account")
+    return environment
 
 
 def task(key):
@@ -459,9 +478,11 @@ def fleet_cancel_running(task_id: str, confirm_task: str,
         if previous is None:
             update_cancel_intent(task_id,rid)
         worker=meta["fleet_worker_repo"]
+        auth=bound_worker_github_env(worker)
         try:
             cmd(["gh","api","-X","POST",
-                 f"repos/{worker}/actions/runs/{rid}/cancel"],timeout=30)
+                 f"repos/{worker}/actions/runs/{rid}/cancel"],
+                timeout=30,env=auth)
         except ValueError:
             # GitHub returns 409 when a worker has just reached terminal state
             # between read-only preflight and cancellation request. Re-read
