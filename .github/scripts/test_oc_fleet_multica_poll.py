@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import oc_fleet_multica_poll as poller
 REAL_WORKER_SLOTS=poller.worker_slots
 REAL_OCCUPIED_SCOPES=poller.occupied_file_scopes
+REAL_OPEN_GITHUB_PR_SCOPES=poller.open_github_pr_file_scopes
 
 PROJECT = "0506e0e5-01a7-4de9-b63b-67e993809721"
 META = {
@@ -34,6 +35,9 @@ class PollTests(unittest.TestCase):
         self.scopes=patch.object(poller,"occupied_file_scopes",return_value=[])
         self.scopes_mock=self.scopes.start()
         self.addCleanup(self.scopes.stop)
+        self.open_prs=patch.object(poller,"open_github_pr_file_scopes",return_value=[])
+        self.open_prs_mock=self.open_prs.start()
+        self.addCleanup(self.open_prs.stop)
 
     def test_project_scoped_filtered_list(self):
         with patch.object(poller.subprocess,"run",
@@ -62,6 +66,7 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(poller.poll(PROJECT,False,root),"planned")
                 run.assert_not_called()
                 self.scopes_mock.assert_not_called()
+                self.open_prs_mock.assert_not_called()
                 self.assertEqual(list(root.iterdir()),[])
 
     def test_existing_receipt_never_dispatches(self):
@@ -72,6 +77,7 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(poller.poll(PROJECT,True,root),"no_new_work")
                 run.assert_not_called()
                 self.scopes_mock.assert_not_called()
+                self.open_prs_mock.assert_not_called()
 
     def test_failed_dispatch_keeps_claim_and_never_changes_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -150,6 +156,85 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),"dispatched")
                 dispatch.assert_called_once()
                 self.assertEqual(dispatch.call_args.args[0]["identifier"],"OAS-14")
+
+    def test_open_bot_pr_blocks_distinct_multica_issue_on_same_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            task=ISSUE
+            open_scope=("oaslananka-dev/oc-test",
+                        ("playground/fleet/supplemental-receipt.json",))
+            with patch.object(poller,"ready_issues",return_value=[task]),patch.object(
+                poller.handoff,"read_issue",return_value=task),patch.object(
+                poller,"controller_receipt",return_value=root/"missing"),patch.object(
+                poller,"open_github_pr_file_scopes",return_value=[open_scope]) as github,patch.object(
+                poller,"dispatch_one") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),
+                                 "no_new_work")
+                github.assert_called_once_with("oaslananka-dev/oc-test")
+                dispatch.assert_not_called()
+                self.assertFalse(list(root.iterdir()))
+
+    def test_open_github_pr_query_is_once_per_repo_for_four_disjoint_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            tasks=[{**ISSUE,"identifier":f"OAS-{i}","metadata":{
+                **META,"fleet_target_issue":str(i),
+                "fleet_allowed_path":f"playground/fleet/independent-{i}.json"}}
+                for i in (50,51,52,53)]
+            with patch.object(poller,"ready_issues",return_value=tasks),patch.object(
+                poller.handoff,"read_issue",side_effect=lambda k:next(
+                    t for t in tasks if t["identifier"]==k)),patch.object(
+                poller,"controller_receipt",side_effect=lambda m:
+                    root/(m["fleet_target_issue"]+".json")),patch.object(
+                poller,"open_github_pr_file_scopes",return_value=[]) as github,patch.object(
+                poller,"dispatch_one",return_value="dispatched") as dispatched:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),
+                                 "dispatched_parallel")
+                github.assert_called_once_with("oaslananka-dev/oc-test")
+                self.assertEqual(dispatched.call_count,4)
+
+    def test_open_pr_graphql_fails_closed_on_pagination_and_bad_paths(self):
+        import json
+        def sample(files,more=False,pr_more=False):
+            return {"data":{"repository":{"pullRequests":{
+                "pageInfo":{"hasNextPage":pr_more},
+                "nodes":[{"files":{"pageInfo":{"hasNextPage":more},
+                                   "nodes":[{"path":path} for path in files]}}]}}}}
+        for payload in (
+            sample(["safe/file.txt"],pr_more=True),
+            sample(["safe/file.txt"],more=True),
+            sample(["../bad.txt"]),
+            sample(["bad//path"]),
+            sample(["/rooted"]),
+            {"errors":[{"message":"Forbidden"}]},
+            {"data":{"repository":None}},
+        ):
+            with self.subTest(payload=payload),patch.object(
+                poller.subprocess,"run",
+                return_value=MagicMock(stdout=json.dumps(payload))):
+                with self.assertRaises(ValueError):
+                    REAL_OPEN_GITHUB_PR_SCOPES("oaslananka/fovux-kit")
+
+    def test_graphql_real_shape_returns_case_normalized_exact_paths(self):
+        import json
+        data={"data":{"repository":{"pullRequests":{
+            "pageInfo":{"hasNextPage":False},"nodes":[
+              {"files":{"pageInfo":{"hasNextPage":False},"nodes":[
+                  {"path":".github/labels.yml"},
+                  {"path":"fovux-studio/PNPM-lock.yaml"},
+                  {"path":"fovux-studio/package.json"}]}},
+              {"files":{"pageInfo":{"hasNextPage":False},"nodes":[
+                  {"path":"fovux-mcp/uv.lock"}]}}
+        ]}}}}
+        with patch.object(poller.subprocess,"run",return_value=MagicMock(
+                stdout=json.dumps(data))) as cmd:
+            scopes=REAL_OPEN_GITHUB_PR_SCOPES("oaslananka/fovux-kit")
+            self.assertEqual(scopes,[
+                ("oaslananka/fovux-kit",
+                 (".github/labels.yml","fovux-studio/pnpm-lock.yaml",
+                  "fovux-studio/package.json")),
+                ("oaslananka/fovux-kit",("fovux-mcp/uv.lock",))])
+            self.assertEqual(cmd.call_args.args[0][:3],["gh","api","graphql"])
 
     def test_directory_file_overlap_and_distinct_repos(self):
         a=("oaslananka/fovux-kit",("fovux-studio/",))
