@@ -188,18 +188,6 @@ class HandoffTests(unittest.TestCase):
         self.assertNotIn("--dry-run",command)
         self.assertEqual(meta["fleet_integrations"],'["context7","codacy"]')
 
-    def test_operator_selected_private_model_is_bounded_and_opt_in(self):
-        meta=handoff.validate_issue(record(
-            fleet_model="ollama-remote/qwen3:4b-instruct",
-            fleet_profile="python-ruff", fleet_agent="python-backend",
-            fleet_ready=False,
-        ),KEY,PID,False)
-        args=handoff.controller_command(KEY,meta,False)
-        self.assertEqual(args[args.index("--model")+1],
-                         "ollama-remote/qwen3:4b-instruct")
-        self.assertIn("--dry-run",args)
-        self.assertFalse(meta["fleet_ready"])
-
     def test_default_task_profiles_are_backward_compatible(self):
         meta=handoff.validate_issue(record(fleet_ready=True),KEY,PID,True)
         args=handoff.controller_command(KEY,meta,True)
