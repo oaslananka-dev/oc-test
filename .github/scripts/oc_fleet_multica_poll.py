@@ -36,26 +36,6 @@ def ready_issues(project):
 
 WORKER_STATUSES = ("queued","in_progress","waiting","requested")
 MAX_CONTROLLER_PARALLEL = 20
-PRIVATE_GPU_MODEL = "ollama-remote/qwen3:4b-instruct"
-
-
-def private_gpu_available(project):
-    """Only one active local-GPU model worker per project, fail closed."""
-    result=subprocess.run([
-        "multica", "issue", "list", "--project", project,
-        "--metadata", "fleet_result=worker_dispatched", "--limit", "100",
-        "--fields", "identifier,status,metadata", "--output", "json"
-    ], capture_output=True, text=True, check=True, timeout=40)
-    data=json.loads(result.stdout)
-    if (not isinstance(data,dict) or data.get("has_more") is not False
-            or not isinstance(data.get("issues"),list) or len(data["issues"])>100):
-        raise ValueError("Incomplete private GPU active worker evidence")
-    active=sum(
-        issue.get("status")=="in_progress"
-        and (issue.get("metadata") or {}).get("fleet_model")==PRIVATE_GPU_MODEL
-        for issue in data["issues"]
-    )
-    return active==0
 
 
 def worker_slots(worker_repo, budget):
@@ -162,7 +142,6 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     selected = []
     seen_targets = set()
     worker_available = {}
-    private_gpu_free = None  # No extra Multica query for cloud models.
     for item in eligible:
         key = item.get("identifier")
         if not isinstance(key, str) or not handoff.ISSUE_RE.fullmatch(key):
@@ -180,12 +159,6 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
             print("SKIP_DUPLICATE_TARGET", key)
             continue
         worker_repo=meta["fleet_worker_repo"]
-        if execute and meta.get("fleet_model")==PRIVATE_GPU_MODEL:
-            if private_gpu_free is None:
-                private_gpu_free=private_gpu_available(project)
-            if not private_gpu_free:
-                print("SKIP_PRIVATE_GPU_AT_CAPACITY",key,flush=True)
-                continue
         if execute:
             if worker_repo not in worker_available:
                 worker_available[worker_repo]=worker_slots(worker_repo,max_parallel)
@@ -195,8 +168,6 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
             worker_available[worker_repo]-=1
         seen_targets.add(target)
         selected.append(fresh)
-        if execute and meta.get("fleet_model")==PRIVATE_GPU_MODEL:
-            private_gpu_free=False
         if len(selected) == max_parallel:
             break
     if not selected:

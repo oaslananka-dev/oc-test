@@ -181,65 +181,6 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(dispatch.call_count,4)
                 capacity.assert_called_once_with("MakerParsDev/oc-test",4)
 
-    def test_private_gpu_busy_skips_only_private_and_still_runs_cloud(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)
-            local={**ISSUE,"identifier":"OAS-11","metadata":{
-                **META,"fleet_target_issue":"11",
-                "fleet_model":"ollama-remote/qwen3:4b-instruct"}}
-            cloud={**ISSUE,"identifier":"OAS-12","metadata":{
-                **META,"fleet_target_issue":"12","fleet_model":"opencode/big-pickle"}}
-            issues=[local,cloud]
-            with patch.object(poller,"ready_issues",return_value=issues), \
-                 patch.object(poller.handoff,"read_issue",side_effect=lambda k:next(
-                     x for x in issues if x["identifier"]==k)), \
-                 patch.object(poller,"controller_receipt",side_effect=lambda m:
-                     path/(m["fleet_target_issue"]+".json")), \
-                 patch.object(poller,"private_gpu_available",return_value=False) as gpu, \
-                 patch.object(poller,"dispatch_one",return_value="dispatched") as dispatch:
-                self.assertEqual(poller.poll(PROJECT,True,path,max_parallel=4),"dispatched")
-                gpu.assert_called_once_with(PROJECT)
-                self.assertEqual(dispatch.call_args.args[0]["identifier"],"OAS-12")
-
-    def test_local_gpu_only_one_selected_with_four_worker_budget(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path=Path(tmp)
-            tasks=[{**ISSUE,"identifier":f"OAS-{i}","metadata":{
-                **META,"fleet_target_issue":str(i),
-                "fleet_model":"ollama-remote/qwen3:4b-instruct"}}
-                for i in (21,22,23)]
-            with patch.object(poller,"ready_issues",return_value=tasks), \
-                 patch.object(poller.handoff,"read_issue",side_effect=lambda k:next(
-                     x for x in tasks if x["identifier"]==k)), \
-                 patch.object(poller,"controller_receipt",side_effect=lambda m:
-                     path/(m["fleet_target_issue"]+".json")), \
-                 patch.object(poller,"private_gpu_available",return_value=True) as gpu, \
-                 patch.object(poller,"dispatch_one",return_value="dispatched") as dispatch:
-                self.assertEqual(poller.poll(PROJECT,True,path,max_parallel=4),"dispatched")
-                gpu.assert_called_once_with(PROJECT)
-                dispatch.assert_called_once()
-                self.assertEqual(dispatch.call_args.args[0]["identifier"],"OAS-21")
-
-    def test_incomplete_private_gpu_inventory_fails_closed(self):
-        with patch.object(poller.subprocess,"run",return_value=MagicMock(
-                stdout='{"has_more":true,"issues":[]}')):
-            with self.assertRaisesRegex(ValueError,"Incomplete private GPU"):
-                poller.private_gpu_available(PROJECT)
-
-    def test_private_gpu_inventory_distinguishes_active_model(self):
-        import json
-        data={"has_more":False,"issues":[
-            {"status":"in_progress","metadata":{"fleet_model":"ollama-remote/qwen3:4b-instruct"}},
-            {"status":"in_progress","metadata":{"fleet_model":"opencode/big-pickle"}}]}
-        with patch.object(poller.subprocess,"run",
-                          return_value=MagicMock(stdout=json.dumps(data))) as proc:
-            self.assertFalse(poller.private_gpu_available(PROJECT))
-            self.assertIn("fleet_result=worker_dispatched",proc.call_args.args[0])
-        data["issues"][0]["status"]="blocked"
-        with patch.object(poller.subprocess,"run",
-                          return_value=MagicMock(stdout=json.dumps(data))):
-            self.assertTrue(poller.private_gpu_available(PROJECT))
-
     def test_worker_slots_exactly_counts_busy_workflow_runs(self):
         sample=lambda total:MagicMock(stdout=__import__("json").dumps({
             "total_count":total,
