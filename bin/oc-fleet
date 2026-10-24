@@ -1,5 +1,6 @@
 #!/bin/sh
 # Single portable entrypoint; no worker is executed from this wrapper.
 set -eu
-base=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+self=$(readlink -f -- "$0")
+base=$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)
 exec python3 -B "$base/.github/scripts/oc_fleet_submit.py" "$@"

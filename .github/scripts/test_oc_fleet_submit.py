@@ -2,6 +2,7 @@
 import argparse
 import copy
 import json
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -174,6 +175,16 @@ class SubmitTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,"Existing Fleet task"):
                     f.submit(options())
                 create.assert_not_called()
+
+    def test_installed_symlink_invokes_the_actual_checkout_from_elsewhere(self):
+        launcher = Path(__file__).resolve().parents[2] / "bin" / "oc-fleet"
+        with tempfile.TemporaryDirectory() as td:
+            link = Path(td) / "oc-fleet"
+            link.symlink_to(launcher)
+            result = subprocess.run([str(link), "--help"],
+                                    cwd=td, text=True, capture_output=True,
+                                    timeout=10, check=True)
+            self.assertIn("{plan,submit,status,list}", result.stdout)
 
     def test_read_only_status_and_list_cannot_mutate(self):
         fixture={"identifier":KEY,"project_id":f.PROJECT,"status":"in_review",
