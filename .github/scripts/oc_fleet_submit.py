@@ -7,6 +7,7 @@ controller is the only consumer of fleet_ready Multica tasks.
 import argparse
 import fcntl
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -131,6 +132,7 @@ def update(key, field, value, kind="string"):
         "fleet_worker_repo", "fleet_worker_account", "fleet_allowed_path",
         "fleet_allowed_paths", "fleet_model", "fleet_profile", "fleet_agent",
         "fleet_auto_merge", "fleet_external_pr_only", "fleet_ready",
+        "fleet_retry_of",
     }, "Unapproved routing field")
     multica("metadata", "set", key, "--key", field, "--value", value,
             "--type", kind)
@@ -153,7 +155,86 @@ def task_view(issue):
     }
 
 
-def submit(opts):
+def verified_retry_chain(opts, retry_of, expected_run_id, reviewed_failure):
+    """A fresh Multica task preserves the immutable original run/attempt.
+
+    GitHub rerun of the same run ID is deliberately NOT supported: current
+    trusted worker receipt/publisher requires original run_attempt=1.
+    """
+    import oc_fleet_multica_detached as detached
+    from oc_fleet_contract import ISSUE_RE
+
+    require(type(retry_of) is str and bool(ISSUE_RE.fullmatch(retry_of)),
+            "Invalid retry source task")
+    require(type(expected_run_id) is str
+            and bool(re.fullmatch(r"[1-9][0-9]{0,19}", expected_run_id)),
+            "Original worker run proof required")
+    chain=[]
+    cursor=retry_of
+    while cursor:
+        require(cursor not in chain and len(chain)<3,
+                "Retry chain exhausted or cyclic (two retries maximum)")
+        old=contract.read_issue(cursor)
+        meta=old.get("metadata") or {}
+        require(old.get("identifier")==cursor
+                and old.get("project_id")==PROJECT
+                and old.get("status")=="blocked"
+                and type(meta) is dict
+                and meta.get("fleet_target_repo")==opts.repo
+                and meta.get("fleet_target_issue")==str(opts.issue)
+                and not meta.get("fleet_pull_request")
+                and meta.get("fleet_merge_sha") is None,
+                "Retry source does not match failed task, project or scope")
+        if not chain:
+            require(meta.get("fleet_result")=="worker_failed"
+                    and meta.get("fleet_run_id")==expected_run_id
+                    and meta.get("fleet_ready") is False
+                    and not meta.get("fleet_control_cancel_intent"),
+                    "Retry source is not an original failed worker run")
+            require(meta.get("fleet_worker_repo")==WORKER_REPO
+                    and meta.get("fleet_model")==opts.model
+                    and meta.get("fleet_profile")==opts.profile
+                    and meta.get("fleet_agent")==opts.agent
+                    and [meta.get("fleet_allowed_path"),
+                         *contract.extra_allowed_paths(meta)]==opts.path,
+                    "Retry changes verified worker model/profile/file scope")
+            receipt=detached.receipt_for(meta)
+            require(receipt["manifest"].get("multica_issue")==cursor
+                    and str(receipt["run_id"])==expected_run_id,
+                    "Immutable original dispatch receipt mismatch")
+            run=json.loads(multica_gh(
+                f"repos/{WORKER_REPO}/actions/runs/{expected_run_id}"))
+            wf=json.loads(multica_gh(
+                f"repos/{WORKER_REPO}/actions/workflows/oc-fleet-worker.yml"))
+            require(run.get("id")==int(expected_run_id)
+                    and run.get("repository",{}).get("full_name")==WORKER_REPO
+                    and run.get("workflow_id")==wf.get("id")
+                    and wf.get("path")==".github/workflows/oc-fleet-worker.yml"
+                    and run.get("event")=="workflow_dispatch"
+                    and run.get("head_branch")=="main"
+                    and run.get("run_attempt")==1
+                    and run.get("status")=="completed"
+                    and run.get("conclusion") in
+                    ("failure","timed_out","startup_failure"),
+                    "GitHub terminal failure/attempt not verified")
+            if run["conclusion"]=="failure":
+                require(reviewed_failure is True,
+                        "Code/test failure requires independent review")
+        chain.append(cursor)
+        cursor=meta.get("fleet_retry_of")
+        require(cursor is None or type(cursor) is str,
+                "Malformed retry chain")
+    require(len(chain) <= 2,
+            "Retry chain exhausted (two retries maximum)")
+    return chain
+
+
+def multica_gh(path):
+    return run(["gh","api",path])
+
+
+def submit(opts, retry_of=None, expected_run_id=None,
+           reviewed_failure=False):
     lock = LOCK
     require(lock.parent.is_dir() and not lock.is_symlink(),
             "Trusted dispatcher lock directory missing")
@@ -165,9 +246,16 @@ def submit(opts):
         # Keep the admission decision and queued task creation serialized.
         proof = preview(opts.repo, opts.issue, opts.path,
                         opts.model, opts.profile, opts.agent)
+        chain = (verified_retry_chain(opts,retry_of,expected_run_id,reviewed_failure)
+                 if retry_of else [])
         found = duplicates(list_raw(), opts.repo, opts.issue)
-        require(not found, "Existing Fleet task for this GitHub issue: " +
-                ",".join(str(x) for x in found))
+        if retry_of:
+            require(len(chain)<=2 and set(found)==set(chain),
+                    "Retry target has unrelated or active existing Fleet tasks: " +
+                    ",".join(str(x) for x in found))
+        else:
+            require(not found, "Existing Fleet task for this GitHub issue: " +
+                    ",".join(str(x) for x in found))
         title = "OC Fleet: " + opts.repo + "#" + str(opts.issue)
         description = (
             "GitHub source issue: https://github.com/" + opts.repo
@@ -200,6 +288,8 @@ def submit(opts):
                 "fleet_profile": opts.profile,
                 "fleet_agent": opts.agent,
             }
+            if retry_of:
+                strings["fleet_retry_of"]=retry_of
             for field, value in strings.items():
                 update(key, field, value)
             update(key, "fleet_auto_merge", "false", "bool")

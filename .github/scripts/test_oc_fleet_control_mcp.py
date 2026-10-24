@@ -41,7 +41,7 @@ class TransportTests(unittest.TestCase):
      return accepted.server_info.name, {t.name for t in reply.tools}
   name,tools=asyncio.run(read_tools())
   self.assertEqual(name,"oc-fleet-control")
-  self.assertEqual(len(tools),18)
+  self.assertEqual(len(tools),23)
   self.assertIn("fleet_submit",tools)
   self.assertIn("fleet_merge_reviewed_pr",tools)
 
@@ -49,7 +49,7 @@ class TransportTests(unittest.TestCase):
 class Tests(unittest.TestCase):
  def test_sdk_exports_sixteen_bound_tools(self):
   names={t.name for t in c.SERVER._tool_manager.list_tools()}
-  self.assertEqual(len(names),18)
+  self.assertEqual(len(names),23)
   for name in ('fleet_health','fleet_status','fleet_plan','fleet_submit',
                'fleet_open_issues','fleet_create_issue',
                'fleet_run','fleet_logs','fleet_pr','fleet_checks','fleet_pause_queued',
@@ -173,6 +173,100 @@ class Tests(unittest.TestCase):
   with patch.object(c,"cmd") as runner:
    with self.assertRaises(ValueError):c.fleet_open_issues("../bad",12)
    runner.assert_not_called()
+
+ def test_retry_requires_exact_original_run_before_any_submit(self):
+  with patch.object(c.intake,"submit") as submit:
+   with self.assertRaisesRegex(ValueError,"Exact task confirmation"):
+    c.fleet_retry_failed(KEY,"OAS-55","123")
+   with self.assertRaisesRegex(ValueError,"Exact failed"):
+    c.fleet_retry_failed(KEY,KEY,"wrong")
+   submit.assert_not_called()
+
+ def test_autopilot_plan_is_read_only(self):
+  doc=copy.deepcopy(GOOD);doc["status"]="blocked"
+  doc["metadata"].update({"fleet_result":"worker_failed",
+                          "fleet_run_id":"123"})
+  with patch.object(c,"combined_inventory",return_value=[doc]),       patch.object(c,"cmd") as write:
+   out=c.fleet_autopilot_plan()
+   self.assertEqual(out["mode"],"read_only_decision_support")
+   self.assertEqual(out["tasks"][0]["action"],
+                    "classify_failed_run_before_retry")
+   write.assert_not_called()
+
+ def test_autopilot_step_never_retries_code_failures(self):
+  with patch.object(c,"fleet_autopilot_plan",return_value={
+      "truncated":False,"tasks":[{"action":"classify_failed_run_before_retry",
+                                  "task":KEY}]}),       patch.object(c,"task",return_value=(copy.deepcopy(GOOD),
+                                          copy.deepcopy(GOOD["metadata"]))),       patch.object(c,"fleet_recovery_plan",
+                    return_value={"decision":"inspect_failure_before_retry",
+                                  "run_id":"123","conclusion":"failure"}),       patch.object(c,"fleet_retry_failed") as retry:
+   out=c.fleet_autopilot_step(apply=True)
+   self.assertEqual(out["state"],"no_safe_retry_candidate")
+   retry.assert_not_called()
+
+ def test_autopilot_step_preview_then_bounded_transient_retry(self):
+  doc=copy.deepcopy(GOOD)
+  payload={"truncated":False,"tasks":[{
+      "action":"classify_failed_run_before_retry","task":KEY}]}
+  decision={"decision":"retry_eligible_after_receipt_and_admission",
+            "run_id":"123","conclusion":"timed_out"}
+  with patch.object(c,"fleet_autopilot_plan",return_value=payload),       patch.object(c,"task",return_value=(doc,doc["metadata"])),       patch.object(c,"fleet_recovery_plan",return_value=decision),       patch.object(c,"fleet_retry_failed",
+                    return_value={"new_task":"OAS-888"}) as submit:
+    out=c.fleet_autopilot_step(apply=False)
+    self.assertEqual(out["state"],"candidate")
+    submit.assert_not_called()
+    out=c.fleet_autopilot_step(apply=True)
+    self.assertEqual(out["state"],"retry_queued")
+    submit.assert_called_once_with(KEY,KEY,"123",reviewed_failure=False)
+
+ def test_cancel_running_requires_exact_confirmation_before_io(self):
+  with patch.object(c,"cancel_gate") as reader:
+   with self.assertRaises(ValueError):
+    c.fleet_cancel_running(KEY,"OAS-77","40110708978",True)
+   with self.assertRaises(ValueError):
+    c.fleet_cancel_running(KEY,KEY,"not_a_run",True)
+   reader.assert_not_called()
+
+ def test_cancel_dry_run_does_not_update_or_send_post(self):
+  doc=copy.deepcopy(GOOD)
+  doc["status"]="in_progress"
+  doc["metadata"].update({"fleet_result":"worker_dispatched",
+                          "fleet_run_id":"123","fleet_ready":False})
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"cmd") as transport:
+    value=c.fleet_cancel_running(KEY,KEY,"123")
+    self.assertEqual(value["state"],"ready_to_cancel")
+    transport.assert_not_called()
+    update.assert_not_called()
+
+ def test_cancel_live_records_intent_before_only_original_run_post(self):
+  doc=copy.deepcopy(GOOD)
+  doc["status"]="in_progress"
+  doc["metadata"].update({"fleet_result":"worker_dispatched",
+                          "fleet_run_id":"123","fleet_ready":False})
+  seen=[]
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent",side_effect=lambda *a:seen.append(("marker",*a))),        patch.object(c,"cmd",side_effect=lambda a,**kw:seen.append(("post",a))) as transport:
+    value=c.fleet_cancel_running(KEY,KEY,"123",True)
+    self.assertEqual(value["state"],"cancel_requested")
+    self.assertFalse(value["terminal_confirmed"])
+    self.assertEqual(seen[0],("marker",KEY,"123"))
+    self.assertEqual(seen[1][1][-1],
+              "repos/MakerParsDev/oc-test/actions/runs/123/cancel")
+    self.assertNotIn("force-cancel",str(seen))
+    transport.assert_called_once()
+
+ def test_cancel_rejects_wrong_original_run_and_terminal_without_write(self):
+  doc=copy.deepcopy(GOOD)
+  doc["metadata"].update({"fleet_run_id":"123"})
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                    {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update:
+    with self.assertRaises(ValueError):
+     c.fleet_cancel_running(KEY,KEY,"124",True)
+    update.assert_not_called()
 
  def test_no_unrestricted_tool_names(self):
   names=[t.name for t in c.SERVER._tool_manager.list_tools()]

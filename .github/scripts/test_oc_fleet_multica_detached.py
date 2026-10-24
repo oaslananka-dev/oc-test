@@ -232,6 +232,56 @@ class DetachedTests(unittest.TestCase):
             self.assertEqual(len(commands),1)
             self.assertNotIn("--allow-safe-base-advance",commands[0])
 
+    def test_cancelled_run_is_terminal_cancelled_never_published(self):
+        with tempfile.TemporaryDirectory() as d:
+            receipt=Path(d)/"run.json";receipt.write_text(json.dumps(DOC))
+            pending={**PENDING,"fleet_control_cancel_intent":"12345"}
+            task={**ISSUE,"status":"in_progress","metadata":pending}
+            events=[]
+            def execute(args,timeout=30):
+                events.append(args)
+                if args[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"cancelled"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),                 patch.object(queue.poller,"controller_receipt",return_value=receipt),                 patch.object(queue,"execute",side_effect=execute):
+                self.assertEqual(queue.resume_one(task,PID,True),"cancelled")
+            self.assertTrue(any("worker_cancelled" in c for c in events))
+            self.assertTrue(any("cancelled" in c for c in events))
+            self.assertFalse(any("resume" in c for c in events))
+
+    def test_cancel_success_race_does_not_publish(self):
+        with tempfile.TemporaryDirectory() as d:
+            receipt=Path(d)/"run.json";receipt.write_text(json.dumps(DOC))
+            pending={**PENDING,"fleet_control_cancel_intent":"12345"}
+            task={**ISSUE,"status":"in_progress","metadata":pending}
+            events=[]
+            def execute(args,timeout=30):
+                events.append(args)
+                if args[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"success"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),                 patch.object(queue.poller,"controller_receipt",return_value=receipt),                 patch.object(queue,"execute",side_effect=execute):
+                self.assertEqual(queue.resume_one(task,PID,True),"cancel_race")
+            self.assertTrue(any("cancel_race_needs_review" in c for c in events))
+            self.assertTrue(any("blocked" in c for c in events))
+            self.assertFalse(any("resume" in c for c in events))
+
+    def test_wrong_run_cancel_intent_fails_without_mutating(self):
+        with tempfile.TemporaryDirectory() as d:
+            receipt=Path(d)/"run.json";receipt.write_text(json.dumps(DOC))
+            pending={**PENDING,"fleet_control_cancel_intent":"12346"}
+            task={**ISSUE,"status":"in_progress","metadata":pending}
+            events=[]
+            def execute(args,timeout=30):
+                events.append(args)
+                if args[:2]==["gh","api"]:
+                    return json.dumps({**RUN,"status":"completed","conclusion":"cancelled"})
+                return ""
+            with patch.object(queue.handoff,"read_issue",return_value=task),                 patch.object(queue.poller,"controller_receipt",return_value=receipt),                 patch.object(queue,"execute",side_effect=execute):
+                with self.assertRaisesRegex(ValueError,"different worker"):
+                    queue.resume_one(task,PID,True)
+            self.assertEqual(len(events),1)
+
     def test_double_dispatch_stays_claimed_not_reissued(self):
         with tempfile.TemporaryDirectory() as d:
             claim=Path(d)/(KEY+".claim");claim.write_text(KEY)

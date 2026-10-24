@@ -52,7 +52,7 @@ def update(key,field,value,kind="string"):
 
 
 def status(key,state):
-    require(state in ("in_progress","in_review","blocked"),
+    require(state in ("in_progress","in_review","blocked","cancelled"),
             "Unsupported issue state")
     execute(["multica","issue","status",key,state,"--no-start"],30)
 
@@ -234,6 +234,22 @@ def resume_one(item,project,live):
             "Untrusted worker run details")
     if run.get("status")!="completed":
         return "pending"
+    # A requested cancellation is not an ordinary failed coding attempt.
+    # Intent is written before GitHub POST and must match this exact run.
+    cancel_intent=meta.get("fleet_control_cancel_intent")
+    require(cancel_intent in (None,str(doc["run_id"])),
+            "Cancellation intent bound to a different worker run")
+    if cancel_intent and run.get("conclusion")=="cancelled":
+        if live:
+            update(key,"fleet_result","worker_cancelled")
+            status(key,"cancelled")
+        return "cancelled"
+    if cancel_intent and run.get("conclusion")=="success":
+        # The worker completed before cancellation took effect: no PR publish.
+        if live:
+            update(key,"fleet_result","cancel_race_needs_review")
+            status(key,"blocked")
+        return "cancel_race"
     if run.get("conclusion")!="success":
         if live:
             update(key,"fleet_result","worker_failed")

@@ -68,7 +68,8 @@ codex mcp add oc-fleet-control -- ssh -T amd@amd2700x \
 
 - **Observe:** `fleet_health`, `fleet_list`, `fleet_status`,
   `fleet_run`, `fleet_logs`, `fleet_telemetry`, `fleet_pr`,
-  `fleet_checks`.
+  `fleet_checks`, `fleet_recovery_plan`,
+  `fleet_autopilot_plan`.
 - **Discover/prepare:** `fleet_open_issues` and `fleet_create_issue`
   (only existing owner-approved repositories), `fleet_plan`
   (real read-only admission).
@@ -80,6 +81,9 @@ codex mcp add oc-fleet-control -- ssh -T amd@amd2700x \
   exact identifier, the existing dispatcher file lock, no worker receipt or
   claim, and truthful Multica readback. Paused tasks are only resumed after
   a fresh production admission check.
+- **Active/failed worker:** `fleet_cancel_running`, `fleet_retry_failed`,
+  `fleet_autopilot_step`. Follow the verified cancellation/retry section
+  below; no blind reuse of old worker runs.
 - **After PR:** `fleet_merge_reviewed_pr` only when the caller explicitly
   supplies the immutable HEAD SHA and confirms review, on an eligible
   trusted worker PR with permitted changed files and completed normal
@@ -95,14 +99,46 @@ allowlists. A task in the second project can be observed/reconciled, but
 cannot be submitted through the main project's intake by silently changing
 its project ID.
 
-**Deliberate boundary:** stopping an already-running authenticated worker,
-arbitrary workflow reruns, unrelated GitHub PR merging and the special
-`oc-test` pilot auto-finalizer are NOT exposed by this v1. The existing
-cancel admission module is offline-only; connecting an unchecked live
-cancel endpoint would bypass its deliberately unimplemented approval
-boundary. Do not claim these operations work or replace them with arbitrary
-shell execution. Future cancel/retry tooling must preserve exact task/run
-receipt verification, GitHub authentication, bounded attempts and audit.
+**Verified cancellation and retry controls (v2)**
+
+- `fleet_cancel_running(task_id, confirm_task, confirm_run_id, apply=false)`:
+  first validates the currently active original GitHub Actions run, workflow
+  identity, `run_attempt=1`, bounded Multica state and immutable local
+  dispatch receipt. Read-only preview is the default. `apply=true` writes
+  `fleet_control_cancel_intent` bound to the *original* run, then requests
+  GitHub Actions' normal cancellation endpoint (never force-cancel). It returns
+  **cancel_requested, not cancelled**. Existing 5-minute detached controller
+  independently verifies GitHub `completed/cancelled` and then marks the
+  Multica issue `cancelled / worker_cancelled`, never `done`. If the
+  worker already finished successfully before cancellation, the controller
+  blocks with `cancel_race_needs_review`, never publishes a PR.
+- `fleet_recovery_plan(task_id)` classifies a verified bound worker. A
+  GitHub `failure` is **not assumed transient**: read CI/logs, review the
+  root cause, then consider a fresh task. `timed_out` and
+  `startup_failure` are limited infrastructure-retry candidates.
+- `fleet_retry_failed(task_id, confirm_task, confirm_run_id,
+  reviewed_failure=false)` creates a **fresh, independently validated**
+  Multica retry task with `fleet_retry_of=OLD_ID`, its own claim/receipt,
+  original task intact, same GitHub issue, model, agent, file scopes and
+  previously authorized repository. Only a verified terminal GitHub failure
+  and a blocked `worker_failed` task are allowed. For a normal failure,
+  explicit `reviewed_failure=true` is required. Maximum **two** retries
+  per chain, no existing unrelated same-issue Fleet task/PR overlap.
+  GitHub's `rerun` API is deliberately **not** used: the trusted current
+  publisher requires each run's immutable `run_attempt=1`.
+- `fleet_autopilot_plan` shows bounded canonical decisions across both
+  projects. `fleet_autopilot_step(apply=false)` previews at most one
+  infrastructure retry candidate; `apply=true` re-verifies and queues at
+  most one safe transient retry, not a mass replay. This step must be
+  explicitly invoked by a connected agent. No unattended retry timer or
+  continuously running model is enabled by this change.
+
+**Remaining boundary:** arbitrary force-cancel, unrelated workflow reruns,
+arbitrary repository PR merging and the special `oc-test` pilot
+auto-finalizer are not exposed. The older cancel admission module remains
+offline-only and is not bypassed by this different, exact-task/run,
+receipt-verified cancellation path. Full continuous multi-repository
+Autopilot scheduling/prioritization still requires a separate acceptance.
 The user can still perform unrelated administration through the separate
 trusted Ops connector if appropriate; this narrowly defined Fleet MCP is
 not a general-purpose system shell.
@@ -130,4 +166,4 @@ never run on the operator PC.
   controller only under `~/.local/state/oc-fleet/dispatch.lock`.
 - Keep existing timer, Multica and free-model configurations unchanged.
 - Avoid adding the same MCP server to multiple profiles unnecessarily;
-  18 tools may use context tokens and there is no need for paid providers.
+  23 tools may use context tokens and there is no need for paid providers.
