@@ -20,6 +20,7 @@ that every capability is enabled in production.
 - [Manual external PR terminal reconciliation](oc-fleet-external-reconcile.md)
 - [One-command Fleet intake and status](oc-fleet-submit.md)
 - [Local Agent Fleet Control MCP](oc-fleet-control-mcp.md)
+- [Multi-account worker pool](oc-fleet-worker-pool.md)
 - [Specialist and tool profiles](oc-fleet-tool-profiles.md)
 - [Temporary agent role selection](oc-fleet-agent-roles.md)
 - [Nerlex integrations](oc-fleet-nerlex-integrations.md)

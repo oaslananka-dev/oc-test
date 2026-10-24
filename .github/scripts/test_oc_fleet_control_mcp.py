@@ -41,15 +41,21 @@ class TransportTests(unittest.TestCase):
      return accepted.server_info.name, {t.name for t in reply.tools}
   name,tools=asyncio.run(read_tools())
   self.assertEqual(name,"oc-fleet-control")
-  self.assertEqual(len(tools),23)
+  self.assertEqual(len(tools),24)
   self.assertIn("fleet_submit",tools)
   self.assertIn("fleet_merge_reviewed_pr",tools)
 
 
 class Tests(unittest.TestCase):
+ def setUp(self):
+  self.registered=patch.object(c.pool,"registered",
+                               return_value=["MakerParsDev/oc-test"])
+  self.registered.start()
+  self.addCleanup(self.registered.stop)
+
  def test_sdk_exports_sixteen_bound_tools(self):
   names={t.name for t in c.SERVER._tool_manager.list_tools()}
-  self.assertEqual(len(names),23)
+  self.assertEqual(len(names),24)
   for name in ('fleet_health','fleet_status','fleet_plan','fleet_submit',
                'fleet_open_issues','fleet_create_issue',
                'fleet_run','fleet_logs','fleet_pr','fleet_checks','fleet_pause_queued',
@@ -219,16 +225,27 @@ class Tests(unittest.TestCase):
     self.assertEqual(out["state"],"retry_queued")
     submit.assert_called_once_with(KEY,KEY,"123",reviewed_failure=False)
 
+ def test_worker_pool_tool_is_readonly_and_no_secret(self):
+  with patch.object(c.pool,"snapshot",return_value={
+       "workers":[{"repo":"MakerParsDev/oc-test","account":"MakerParsDev",
+                   "busy":2}],"global_free":2,"global_limit":4,
+       "total_active":2}) as snap,       patch.object(c,"cmd") as writes:
+   result=c.fleet_worker_pool()
+   self.assertEqual(result["workers"][0]["account"],"MakerParsDev")
+   self.assertNotIn("GH_TOKEN",str(result))
+   snap.assert_called_once()
+   writes.assert_not_called()
+
  def test_cancel_worker_token_must_resolve_to_worker_account(self):
   from subprocess import CompletedProcess
-  with patch.object(c.subprocess,"run",
+  with patch.object(c.pool,"registered",return_value=["MakerParsDev/oc-test"]),       patch.object(c.subprocess,"run",
                     return_value=CompletedProcess(["gh"],0,stdout="x"*25)) as token,       patch.object(c,"obj",return_value={"login":"oaslananka"}) as user:
    with self.assertRaisesRegex(ValueError,"wrong GitHub account"):
     c.bound_worker_github_env("MakerParsDev/oc-test")
    self.assertEqual(token.call_args.args[0][:4],
                     ["gh","auth","token","--user"])
    self.assertEqual(user.call_args.kwargs["env"]["GH_TOKEN"],"x"*25)
-  with patch.object(c.subprocess,"run") as runner:
+  with patch.object(c.pool,"registered",return_value=["MakerParsDev/oc-test"]),       patch.object(c.subprocess,"run") as runner:
    with self.assertRaisesRegex(ValueError,"repository"):
     c.bound_worker_github_env("untrusted/other")
    runner.assert_not_called()
