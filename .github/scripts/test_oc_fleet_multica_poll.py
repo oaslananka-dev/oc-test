@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import oc_fleet_multica_poll as poller
 REAL_WORKER_SLOTS=poller.worker_slots
+REAL_OCCUPIED_SCOPES=poller.occupied_file_scopes
 
 PROJECT = "0506e0e5-01a7-4de9-b63b-67e993809721"
 META = {
@@ -30,6 +31,9 @@ class PollTests(unittest.TestCase):
                                    side_effect=lambda repo,budget:budget)
         self.capacity.start()
         self.addCleanup(self.capacity.stop)
+        self.scopes=patch.object(poller,"occupied_file_scopes",return_value=[])
+        self.scopes_mock=self.scopes.start()
+        self.addCleanup(self.scopes.stop)
 
     def test_project_scoped_filtered_list(self):
         with patch.object(poller.subprocess,"run",
@@ -57,6 +61,7 @@ class PollTests(unittest.TestCase):
             with patch.object(poller,"ready_issues",return_value=[ISSUE]),                  patch.object(poller.handoff,"read_issue",return_value=ISSUE),                  patch.object(poller,"controller_receipt",return_value=root/"missing"),                  patch.object(poller.subprocess,"run") as run:
                 self.assertEqual(poller.poll(PROJECT,False,root),"planned")
                 run.assert_not_called()
+                self.scopes_mock.assert_not_called()
                 self.assertEqual(list(root.iterdir()),[])
 
     def test_existing_receipt_never_dispatches(self):
@@ -66,6 +71,7 @@ class PollTests(unittest.TestCase):
             with patch.object(poller,"ready_issues",return_value=[ISSUE]),                  patch.object(poller.handoff,"read_issue",return_value=ISSUE),                  patch.object(poller,"controller_receipt",return_value=receipt),                  patch.object(poller.subprocess,"run") as run:
                 self.assertEqual(poller.poll(PROJECT,True,root),"no_new_work")
                 run.assert_not_called()
+                self.scopes_mock.assert_not_called()
 
     def test_failed_dispatch_keeps_claim_and_never_changes_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -99,7 +105,8 @@ class PollTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
             other={**ISSUE, "identifier":"OAS-17",
-                   "metadata":{**META,"fleet_target_issue":"61"}}
+                   "metadata":{**META,"fleet_target_issue":"61",
+                               "fleet_allowed_path":"playground/fleet/other.json"}}
             issues=[ISSUE,other]
             barrier=Barrier(2,timeout=3)
             starts=[]
@@ -128,10 +135,79 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=2),"dispatched")
                 dispatch.assert_called_once()
 
+    def test_distinct_issues_same_file_are_serialized(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            second={**ISSUE,"identifier":"OAS-17","metadata":{
+                **META,"fleet_target_issue":"61"}}
+            tasks=[ISSUE,second]
+            with patch.object(poller,"ready_issues",return_value=tasks), patch.object(
+                poller.handoff,"read_issue",side_effect=lambda k:next(
+                    t for t in tasks if t["identifier"]==k)), patch.object(
+                poller,"controller_receipt",side_effect=lambda m:
+                    root/(m["fleet_target_issue"]+".json")), patch.object(
+                poller,"dispatch_one",return_value="dispatched") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),"dispatched")
+                dispatch.assert_called_once()
+                self.assertEqual(dispatch.call_args.args[0]["identifier"],"OAS-14")
+
+    def test_directory_file_overlap_and_distinct_repos(self):
+        a=("oaslananka/fovux-kit",("fovux-studio/",))
+        self.assertTrue(poller.file_scopes_overlap(
+            a,("oaslananka/fovux-kit",("fovux-studio/pnpm-lock.yaml",))))
+        self.assertFalse(poller.file_scopes_overlap(
+            a,("oaslananka/fovux-kit",("fovux-mcp/uv.lock",))))
+        self.assertFalse(poller.file_scopes_overlap(
+            a,("different/repo",("fovux-studio/pnpm-lock.yaml",))))
+        self.assertFalse(poller.file_scopes_overlap(
+            ("repo/name",("fovux-studio/pnpm-lock.yaml",)),
+            ("repo/name",("fovux-studio/pnpm-lock.yaml.bak",))))
+
+    def test_running_or_in_review_scopes_skip_overlapping_new_task(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            src={**ISSUE,"metadata":{**META,"fleet_allowed_path":
+                "fovux-studio/pnpm-lock.yaml"}}
+            held=("oaslananka-dev/oc-test",("fovux-studio/",))
+            with patch.object(poller,"ready_issues",return_value=[src]),patch.object(
+                poller.handoff,"read_issue",return_value=src),patch.object(
+                poller,"occupied_file_scopes",return_value=[held]),patch.object(
+                poller,"controller_receipt",return_value=root/"missing"),patch.object(
+                poller,"dispatch_one") as dispatch:
+                self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),
+                                 "no_new_work")
+                dispatch.assert_not_called()
+                self.assertFalse(list(root.iterdir()))
+
+    def test_partial_active_inventory_fails_closed(self):
+        with patch.object(poller.subprocess,"run",return_value=MagicMock(
+                stdout='{"has_more":true,"issues":[]}')):
+            with self.assertRaisesRegex(ValueError,"Incomplete active"):
+                REAL_OCCUPIED_SCOPES(PROJECT)
+
+    def test_active_scope_inventory_reserves_workers_and_review_prs(self):
+        import json
+        active=[
+            {"status":"in_progress","metadata":{**META,
+             "fleet_result":"worker_dispatched","fleet_allowed_path":"fovux-mcp/uv.lock"}},
+            {"status":"in_review","metadata":{**META,
+             "fleet_result":"pr_created","fleet_allowed_path":"fovux-studio/pnpm-lock.yaml"}},
+            {"status":"blocked","metadata":{**META,
+             "fleet_result":"worker_failed","fleet_allowed_path":"no-reservation.txt"}},
+        ]
+        with patch.object(poller.subprocess,"run",return_value=MagicMock(
+                stdout=json.dumps({"has_more":False,"issues":active}))) as call:
+            paths=REAL_OCCUPIED_SCOPES(PROJECT)
+            self.assertEqual(len(paths),2)
+            self.assertEqual(paths[0][1],("fovux-mcp/uv.lock",))
+            self.assertEqual(paths[1][1],("fovux-studio/pnpm-lock.yaml",))
+            self.assertIn("--project",call.call_args.args[0])
+
     def test_parallel_failure_waits_for_peer_and_reports_reconciliation(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)
-            other={**ISSUE,"identifier":"OAS-17","metadata":{**META,"fleet_target_issue":"61"}}
+            other={**ISSUE,"identifier":"OAS-17","metadata":{**META,"fleet_target_issue":"61",
+                               "fleet_allowed_path":"playground/fleet/other.json"}}
             issues=[ISSUE,other]
             processed=[]
             def handle(item,*_):
@@ -169,7 +245,8 @@ class PollTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             entries=[{**ISSUE,"identifier":f"OAS-{i}","metadata":{
-                **META,"fleet_target_issue":str(100+i)}}
+                **META,"fleet_target_issue":str(100+i),
+                "fleet_allowed_path":f"playground/fleet/task-{i}.json"}}
                 for i in range(30,34)]
             with patch.object(poller,"ready_issues",return_value=entries),patch.object(
                 poller.handoff,"read_issue",side_effect=lambda k:next(
