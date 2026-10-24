@@ -88,6 +88,66 @@ def file_scopes_overlap(a,b):
     return False
 
 
+# One bounded read-only GitHub GraphQL query replaces an N+1 REST PR walk.
+# Incomplete pagination means the safety decision cannot be made.
+GITHUB_OPEN_PR_FILES_QUERY = (
+    "query($owner:String!,$name:String!){"
+    "repository(owner:$owner,name:$name){"
+    "pullRequests(states:OPEN,first:100){pageInfo{hasNextPage}"
+    "nodes{files(first:100){pageInfo{hasNextPage}nodes{path}}}}}}"
+)
+
+
+def safe_observed_github_file_path(value):
+    """GitHub may list dotfiles; do not use worker write-authorization rules."""
+    return (type(value) is str and 1 <= len(value) <= 4096
+            and not value.startswith("/") and not value.endswith("/")
+            and "\\" not in value and "\x00" not in value
+            and all(part not in ("", ".", "..") for part in value.split("/")))
+
+
+def open_github_pr_file_scopes(repo):
+    """Paths held by any open PR, including Renovate/Dependabot, in one repo."""
+    if not handoff.REPO_RE.fullmatch(repo):
+        raise ValueError("Invalid GitHub scope repository")
+    owner, name = repo.split("/")
+    response=subprocess.run([
+        "gh","api","graphql","-f",f"query={GITHUB_OPEN_PR_FILES_QUERY}",
+        "-f",f"owner={owner}","-f",f"name={name}",
+    ],capture_output=True,text=True,check=True,timeout=35)
+    doc=json.loads(response.stdout)
+    if type(doc) is not dict or doc.get("errors"):
+        raise ValueError("Incomplete GitHub PR file inventory")
+    repository=(doc.get("data") or {}).get("repository")
+    if type(repository) is not dict:
+        raise ValueError("Missing GitHub repository file inventory")
+    connection=repository.get("pullRequests")
+    if (type(connection) is not dict or type(connection.get("pageInfo")) is not dict
+            or connection["pageInfo"].get("hasNextPage") is not False
+            or type(connection.get("nodes")) is not list
+            or len(connection["nodes"]) > 100):
+        raise ValueError("Incomplete GitHub open PR inventory")
+    occupied=[]
+    for pr in connection["nodes"]:
+        if type(pr) is not dict or type(pr.get("files")) is not dict:
+            raise ValueError("Invalid GitHub PR file listing")
+        files=pr["files"]
+        if (type(files.get("pageInfo")) is not dict
+                or files["pageInfo"].get("hasNextPage") is not False
+                or type(files.get("nodes")) is not list or len(files["nodes"]) > 100):
+            raise ValueError("Incomplete GitHub PR file listing")
+        paths=[]
+        for node in files["nodes"]:
+            if (type(node) is not dict
+                    or type(node.get("path")) is not str
+                    or not safe_observed_github_file_path(node["path"])):
+                raise ValueError("Unsafe GitHub PR file path")
+            paths.append(node["path"].casefold())
+        if paths:
+            occupied.append((repo.lower(),tuple(paths)))
+    return occupied
+
+
 def occupied_file_scopes(project):
     """Reserve paths from active workers and unmerged fleet PRs; fail on partial inventory."""
     found=subprocess.run([
@@ -193,6 +253,9 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     # Only inspect active reservations when there is a genuinely new task.
     # Plan mode and already-claimed/received work never make this extra query.
     occupied = None if execute else []
+    # Only query GitHub PRs for target repositories with genuinely new work.
+    # This includes external bot PRs, absent from the Multica task list.
+    github_pr_scopes = {}
     for item in eligible:
         key = item.get("identifier")
         if not isinstance(key, str) or not handoff.ISSUE_RE.fullmatch(key):
@@ -212,7 +275,11 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
         if occupied is None:
             occupied=occupied_file_scopes(project)
         scope=file_scope(meta)
-        if any(file_scopes_overlap(scope,held) for held in occupied):
+        repo=scope[0]
+        if repo not in github_pr_scopes and execute:
+            github_pr_scopes[repo]=open_github_pr_file_scopes(meta["fleet_target_repo"])
+        if any(file_scopes_overlap(scope,held)
+               for held in [*occupied,*github_pr_scopes.get(repo,[])]):
             print("SKIP_OVERLAPPING_PATH", key,flush=True)
             continue
         worker_repo=meta["fleet_worker_repo"]
