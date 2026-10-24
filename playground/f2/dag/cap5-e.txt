@@ -1,0 +1,19 @@
+Observations on existing repository quality checks
+
+1. The PR baseline is a trusted, read-only gate. .github/workflows/ocfilo-baseline.yml
+   checks out the candidate with no persisted credentials, checks out the validator
+   from main, and runs .github/scripts/ocfilo_baseline.py, which applies
+   "git diff --check" whitespace checks, Python syntax validation via ast.parse and
+   shell syntax validation via "bash -n" without ever executing untrusted
+   candidate Python.
+
+2. Required green checks are pinned by check name and by GitHub App ID in
+   .github/scripts/ocfilo_pr_state.py: baseline, fixture-quality and
+   semgrep-cloud-platform/scan (semgrep-code-oaslananka, app ID 4384945).
+   A matching check name alone is deliberately not accepted as proof of a scan.
+
+3. Offline regressions are plain unittest scripts (32 test_*.py files under
+   .github/scripts) executed by path-filtered workflows. For example
+   .github/workflows/ocfilo-f2-pilot-tests.yml runs the F2 plan, pilot, scheduler,
+   DAG and integrate suites and then asserts the plan summary still reports
+   dispatch_allowed false and execution_authorized false.
