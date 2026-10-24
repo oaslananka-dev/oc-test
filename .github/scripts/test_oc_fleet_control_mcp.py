@@ -219,6 +219,36 @@ class Tests(unittest.TestCase):
     self.assertEqual(out["state"],"retry_queued")
     submit.assert_called_once_with(KEY,KEY,"123",reviewed_failure=False)
 
+ def test_cancel_worker_token_must_resolve_to_worker_account(self):
+  from subprocess import CompletedProcess
+  with patch.object(c.subprocess,"run",
+                    return_value=CompletedProcess(["gh"],0,stdout="x"*25)) as token,       patch.object(c,"obj",return_value={"login":"oaslananka"}) as user:
+   with self.assertRaisesRegex(ValueError,"wrong GitHub account"):
+    c.bound_worker_github_env("MakerParsDev/oc-test")
+   self.assertEqual(token.call_args.args[0][:4],
+                    ["gh","auth","token","--user"])
+   self.assertEqual(user.call_args.kwargs["env"]["GH_TOKEN"],"x"*25)
+  with patch.object(c.subprocess,"run") as runner:
+   with self.assertRaisesRegex(ValueError,"repository"):
+    c.bound_worker_github_env("untrusted/other")
+   runner.assert_not_called()
+
+ def test_cancel_uses_pinned_worker_identity_env_not_primary(self):
+  doc=copy.deepcopy(GOOD)
+  doc["status"]="in_progress"
+  doc["metadata"].update({"fleet_result":"worker_dispatched",
+                          "fleet_run_id":"123","fleet_ready":False,
+                          "fleet_control_cancel_intent":"123"})
+  with tempfile.TemporaryDirectory() as td:
+   with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
+                    {"status":"in_progress","conclusion":None})),        patch.object(c,"bound_worker_github_env",
+                     return_value={"GH_TOKEN":"worker_only_token"}) as auth,        patch.object(c,"cmd",return_value="") as api:
+    out=c.fleet_cancel_running(KEY,KEY,"123",True)
+    self.assertEqual(out["state"],"cancel_requested")
+    auth.assert_called_once_with("MakerParsDev/oc-test")
+    self.assertEqual(api.call_args.kwargs["env"]["GH_TOKEN"],
+                     "worker_only_token")
+
  def test_cancel_running_requires_exact_confirmation_before_io(self):
   with patch.object(c,"cancel_gate") as reader:
    with self.assertRaises(ValueError):
@@ -248,7 +278,7 @@ class Tests(unittest.TestCase):
   seen=[]
   with tempfile.TemporaryDirectory() as td:
    with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
-                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent",side_effect=lambda *a:seen.append(("marker",*a))),        patch.object(c,"cmd",side_effect=lambda a,**kw:seen.append(("post",a))) as transport:
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent",side_effect=lambda *a:seen.append(("marker",*a))),        patch.object(c,"bound_worker_github_env",return_value={"GH_TOKEN":"secret"}),        patch.object(c,"cmd",side_effect=lambda a,**kw:seen.append(("post",a,kw.get("env")))) as transport:
     value=c.fleet_cancel_running(KEY,KEY,"123",True)
     self.assertEqual(value["state"],"cancel_requested")
     self.assertFalse(value["terminal_confirmed"])
@@ -267,7 +297,7 @@ class Tests(unittest.TestCase):
          "run_attempt":1,"status":"completed","conclusion":"success"}
   with tempfile.TemporaryDirectory() as td:
    with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
-                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"cmd",side_effect=ValueError("HTTP 409")),        patch.object(c,"obj",return_value=final):
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"bound_worker_github_env",return_value={"GH_TOKEN":"secret"}),        patch.object(c,"cmd",side_effect=ValueError("HTTP 409")),        patch.object(c,"obj",return_value=final):
     out=c.fleet_cancel_running(KEY,KEY,"123",True)
     update.assert_called_once_with(KEY,"123")
     self.assertEqual(out["state"],"cancel_too_late")
@@ -283,7 +313,7 @@ class Tests(unittest.TestCase):
          "run_attempt":1,"status":"in_progress","conclusion":None}
   with tempfile.TemporaryDirectory() as td:
    with patch.object(c.intake,"LOCK",Path(td)/"dispatch.lock"),        patch.object(c,"cancel_gate",return_value=(doc,doc["metadata"],
-                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"cmd",side_effect=ValueError("HTTP 403")),        patch.object(c,"obj",return_value=still):
+                 {"status":"in_progress","conclusion":None})),        patch.object(c,"update_cancel_intent") as update,        patch.object(c,"bound_worker_github_env",return_value={"GH_TOKEN":"secret"}),        patch.object(c,"cmd",side_effect=ValueError("HTTP 403")),        patch.object(c,"obj",return_value=still):
     with self.assertRaisesRegex(ValueError,"HTTP 403"):
      c.fleet_cancel_running(KEY,KEY,"123",True)
     update.assert_called_once_with(KEY,"123")
