@@ -40,6 +40,10 @@ class WorkerPoolTests(unittest.TestCase):
             events.append(("allowlist",env["account"],name))
             return name
         def fake_gh(env,url):
+            if "/actions/variables/" in url:
+                events.append(("variable",env["account"],url))
+                return {"name":"FLEET_WORKER_REPOSITORY",
+                        "value":"boardreadyops/oc-test"}
             events.append(("counts",env["account"],url))
             return {"total_count":0,"workflow_runs":[]}
         with patch.object(pool.worker,"identity",side_effect=fake_identity),\
@@ -53,12 +57,23 @@ class WorkerPoolTests(unittest.TestCase):
             self.assertEqual(events[1][0],"allowlist")
             self.assertEqual(len([e for e in events if e[0]=="counts"]),len(pool.ACTIVE_STATES))
 
+    def test_wrong_actions_variable_fails_closed(self):
+        with patch.object(pool.worker,"identity",return_value={}),             patch.object(pool.worker,"authorized_worker_repo",
+                          return_value="MakerParsDev/oc-test"),             patch.object(pool.worker,"gh",return_value={
+                "name":"FLEET_WORKER_REPOSITORY","value":"untrusted/repo"}):
+            with self.assertRaisesRegex(ValueError,"variable"):
+                pool.probe("MakerParsDev/oc-test")
+
     def test_unknown_count_never_opens_capacity(self):
         with patch.object(pool.worker,"identity",return_value={}),\
              patch.object(pool.worker,"authorized_worker_repo",
                           return_value="MakerParsDev/oc-test"),\
-             patch.object(pool.worker,"gh",return_value={
-                            "total_count":101,"workflow_runs":[{}]*100}):
+             patch.object(pool.worker,"gh",
+                          side_effect=lambda env,url: (
+                            {"name":"FLEET_WORKER_REPOSITORY",
+                             "value":"MakerParsDev/oc-test"}
+                            if "/actions/variables/" in url
+                            else {"total_count":101,"workflow_runs":[{}]*100})):
             with self.assertRaisesRegex(ValueError,"Incomplete"):
                 pool.probe("MakerParsDev/oc-test")
 
