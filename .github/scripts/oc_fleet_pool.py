@@ -56,6 +56,11 @@ def probe(repo):
     verified = worker.authorized_worker_repo(identity, repo)
     require(verified.casefold() == repo.casefold(),
             "Worker identity/repository mismatch")
+    configured = worker.gh(identity,
+        f"repos/{repo}/actions/variables/FLEET_WORKER_REPOSITORY")
+    require(configured.get("name") == "FLEET_WORKER_REPOSITORY"
+            and configured.get("value") == verified,
+            "Worker's trusted Actions repository variable is missing or wrong")
     busy = 0
     for status in ACTIVE_STATES:
         response = worker.gh(identity,
