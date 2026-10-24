@@ -17,6 +17,7 @@ that every capability is enabled in production.
 - [Multica task dispatch](oc-fleet-multica-dispatch.md)
 - [Detached worker reconciliation](oc-fleet-multica-detached.md)
 - [Multi-repository PR-only acceptance](oc-fleet-multica-multi-repo.md)
+- [Manual external PR terminal reconciliation](oc-fleet-external-reconcile.md)
 - [Specialist and tool profiles](oc-fleet-tool-profiles.md)
 - [Temporary agent role selection](oc-fleet-agent-roles.md)
 - [Nerlex integrations](oc-fleet-nerlex-integrations.md)
