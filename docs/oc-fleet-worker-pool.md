@@ -43,12 +43,19 @@ dispatched to multiple workers. A failed original task retried using
 `fleet_retry_failed` keeps the same approved worker account and fresh
 independently verified attempt-1 run, preserving original provenance.
 
-**Total concurrent free worker ceiling stays four across the whole pool.**
+**Total concurrency is dynamically limited by registered account capacity.**
+By default each verified worker account admits up to four concurrent runs;
+the shared ceiling is `min(20, registered_accounts * 4)` (two accounts: eight).
+The operator may override the bounded limits through
+`FLEET_PER_ACCOUNT_WORKERS` (1..8) and `FLEET_GLOBAL_WORKERS` (1..20)
+in the controller service environment. The total is still bounded by both,
+never automatically raised to a provider's undocumented entitlement.
+A task must also pass repository, file-scope and active-run preflight.
+
 The controller now reads all registered worker run counts and applies the
 shared global ceiling in addition to per-repository checks, including runs
 started on earlier timer ticks. The Fovux service and ordinary Fleet use
-the existing dispatcher lock. Unknown capacity fails closed. A full pool
-queues work rather than running more than four workers. Actual free-model
+the existing dispatcher lock. Unknown capacity fails closed. A full pool queues work rather than exceeding its configured budget. Actual free-model
 provider quotas are external and are not assumed to equal Actions quotas.
 
 ## Adding an account (deliberate operator action)

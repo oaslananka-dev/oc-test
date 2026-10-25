@@ -16,13 +16,16 @@ GitHub-hosted execute jobs use OIDC permission id-token:write ONLY, plus
 contents:read. This is not a GitHub repository write token.
 The receiving service checks a signed GitHub OIDC JWT for:
 - audience ocfilo-telemetry and official GitHub Actions issuer
-- exact source repository oaslananka-dev/oc-test
-- exact .github/workflows/oc-fleet-worker.yml on main
+- source repository in the VPS receiver's explicit
+  `FLEET_TELEMETRY_WORKER_REPOS` allowlist
+- exact `<attested repository>/.github/workflows/oc-fleet-worker.yml` on main
 - workflow_dispatch event and run id / run attempt
 - an existing, trusted run-to-Multica-issue mapping
 
-The signed identity alone cannot select an issue. Only the authorized
-operator may select an existing, active internal issue with
+The signed identity alone cannot select an issue. The receiver verifies
+that the signed repository and run ID match `fleet_worker_repo`,
+`fleet_run_id` and `worker_dispatched` on the active Multica issue. Only
+the authorized operator may select an existing, active internal issue with
 --multica-issue OAS-11 when dispatching a GitHub issue. That option is
 validated by the trusted task manifest, not read from the target issue body.
 Before a temporary OpenCode worker starts, the trusted GitHub Actions
@@ -59,7 +62,7 @@ without this setting. Do not expose the workspace UUID as an agent secret.
 
 
 The optional --multica flag posts and updates one internal progress comment
-per registered run at most around once per minute, using Multica comment
+per registered run about every 20–35 seconds while events arrive, using Multica comment
 revisions. It does not mention or trigger another agent. Never put this
 telemetry in target repository PRs, issues or commits.
 
@@ -90,6 +93,12 @@ GitHub Actions remains the source of truth for terminal job state and CI.
 5. Roll out to real tasks only after idempotence, outage and latency tests.
 
 The pilot HTTPS ingress was validated before enabling Doppler's telemetry URL.
+The worker execute job also retries registration after dispatch metadata is
+committed, avoiding a short-lived validation-job/controller race.
+The receiver maintains one explicit worker repo allowlist (initially
+`MakerParsDev/oc-test,boardreadyops/oc-test`); it never trusts task text,
+model output or unsigned request fields as new allowed identities.
+
 
 ## Read-only supervisor observation (phase 1)
 

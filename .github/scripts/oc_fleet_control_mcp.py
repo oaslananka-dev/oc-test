@@ -225,7 +225,7 @@ def fleet_health() -> dict:
     }
 
 
-@SERVER.tool(description="Read-only authenticated pool: registered GitHub worker accounts, current active GitHub Actions runs and shared four-worker capacity.")
+@SERVER.tool(description="Read-only authenticated pool: registered GitHub worker accounts, current active GitHub Actions runs and shared verified dynamic worker capacity.")
 def fleet_worker_pool() -> dict:
     return pool.snapshot()
 
@@ -611,7 +611,7 @@ def fleet_autopilot_plan(limit: int = 40) -> dict:
                            "worker_run":meta.get("fleet_run_id"),
                            "pull_request":meta.get("fleet_pull_request")})
     return {"mode":"read_only_decision_support",
-            "concurrent_capacity":4,"total":len(candidates),
+            "concurrent_capacity":pool.snapshot()["global_limit"],"total":len(candidates),
             "tasks":candidates[:limit],"truncated":len(candidates)>limit}
 
 

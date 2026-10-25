@@ -14,7 +14,8 @@ import oc_fleet_issue as worker
 DEFAULT_REPO = "MakerParsDev/oc-test"
 DEFAULT_ACCOUNT = "MakerParsDev"
 MAX_POOL = 10
-GLOBAL_WORKERS = 4
+GLOBAL_MAX = 20
+PER_ACCOUNT_DEFAULT = 4
 WORKFLOW = "oc-fleet-worker.yml"
 ACTIVE_STATES = ("queued", "in_progress", "waiting", "requested", "pending")
 
@@ -23,6 +24,19 @@ def require(condition, message):
     if not condition:
         raise ValueError(message)
 
+
+
+def configured_capacity():
+    """Bounded operator configuration, never inferred from number of GH accounts alone."""
+    def count(name, default, highest):
+        raw = os.environ.get(name, str(default))
+        require(isinstance(raw,str) and re.fullmatch(r"[1-9][0-9]{0,2}",raw),
+                f"{name} must be a positive integer")
+        value = int(raw)
+        require(1 <= value <= highest, f"{name} outside approved range")
+        return value
+    return count("FLEET_PER_ACCOUNT_WORKERS", PER_ACCOUNT_DEFAULT, 8), count(
+        "FLEET_GLOBAL_WORKERS", GLOBAL_MAX, GLOBAL_MAX)
 
 def registered():
     env = os.environ.copy()
@@ -78,10 +92,15 @@ def probe(repo):
 
 def snapshot():
     rows = [probe(repo) for repo in registered()]
+    per_account, global_ceiling = configured_capacity()
+    limit = min(global_ceiling, len(rows) * per_account)
     total = sum(row["busy"] for row in rows)
+    for row in rows:
+        row["limit"] = per_account
+        row["free"] = max(0, per_account - row["busy"])
     return {"workers": rows, "total_active": total,
-            "global_limit": GLOBAL_WORKERS,
-            "global_free": max(0, GLOBAL_WORKERS - total)}
+            "global_limit": limit, "per_account_limit": per_account,
+            "global_free": max(0, limit - total)}
 
 
 def choose(repo, issue, *, required_worker=None):
@@ -95,7 +114,8 @@ def choose(repo, issue, *, required_worker=None):
         pool = [w for w in pool if w["repo"].casefold() == required_worker.casefold()]
         require(len(pool) == 1, "Previous worker no longer approved or available")
     else:
-        require(pool, "No verified worker available")
+        pool=[w for w in pool if w["free"] > 0]
+        require(pool, "No registered worker has available capacity")
         # Prefer less-busy accounts; fair tie-break for different GitHub issues.
         rotate = int.from_bytes(hashlib.sha256(
             (repo.casefold() + "#" + str(issue)).encode()).digest()[:4], "big") % len(pool)
@@ -110,5 +130,5 @@ def choose(repo, issue, *, required_worker=None):
 
 
 def global_slots():
-    """Shared, conservative four-worker budget across all registered owners."""
+    """Shared dynamic budget across registered worker accounts."""
     return snapshot()["global_free"]

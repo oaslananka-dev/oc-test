@@ -201,9 +201,10 @@ class Tests(unittest.TestCase):
   doc=copy.deepcopy(GOOD);doc["status"]="blocked"
   doc["metadata"].update({"fleet_result":"worker_failed",
                           "fleet_run_id":"123"})
-  with patch.object(c,"combined_inventory",return_value=[doc]),       patch.object(c,"cmd") as write:
+  with patch.object(c,"combined_inventory",return_value=[doc]),       patch.object(c.pool,"snapshot",return_value={"global_limit":8}),       patch.object(c,"cmd") as write:
    out=c.fleet_autopilot_plan()
    self.assertEqual(out["mode"],"read_only_decision_support")
+   self.assertEqual(out["concurrent_capacity"],8)
    self.assertEqual(out["tasks"][0]["action"],
                     "classify_failed_run_before_retry")
    write.assert_not_called()

@@ -32,7 +32,8 @@ class PollTests(unittest.TestCase):
                                    side_effect=lambda repo,budget:budget)
         self.capacity.start()
         self.addCleanup(self.capacity.stop)
-        self.global_budget = patch("oc_fleet_pool.global_slots", return_value=4)
+        self.global_budget = patch("oc_fleet_pool.snapshot", return_value={
+            "global_free": 4, "per_account_limit": 4})
         self.global_budget.start()
         self.addCleanup(self.global_budget.stop)
         self.scopes=patch.object(poller,"occupied_file_scopes",return_value=[])
@@ -63,7 +64,8 @@ class PollTests(unittest.TestCase):
             second["metadata"]={**META,
                 "fleet_worker_repo":"boardreadyops/oc-test",
                 "fleet_worker_account":"boardreadyops"}
-            with patch.object(poller,"ready_issues",return_value=[second]),                 patch.object(poller.handoff,"read_issue",return_value=second),                 patch.object(poller,"controller_receipt",return_value=root/"missing"),                 patch("oc_fleet_pool.global_slots",return_value=0),                 patch.object(poller,"dispatch_one") as dispatch:
+            with patch.object(poller,"ready_issues",return_value=[second]),                 patch.object(poller.handoff,"read_issue",return_value=second),                 patch.object(poller,"controller_receipt",return_value=root/"missing"),                 patch("oc_fleet_pool.snapshot",return_value={
+                   "global_free":0,"per_account_limit":4}),                 patch.object(poller,"dispatch_one") as dispatch:
                 self.assertEqual(poller.poll(PROJECT,True,root),"no_capacity")
                 dispatch.assert_not_called()
                 self.assertEqual(list(root.iterdir()),[])
@@ -357,6 +359,25 @@ class PollTests(unittest.TestCase):
                 self.assertEqual(poller.poll(PROJECT,True,root,max_parallel=4),"dispatched_parallel")
                 self.assertEqual(dispatch.call_count,4)
                 capacity.assert_called_once_with("MakerParsDev/oc-test",4)
+
+    def test_eight_global_workers_never_exceeds_four_on_one_account(self):
+        first=dict(ISSUE)
+        one=first["metadata"]["fleet_worker_repo"]
+        second=dict(ISSUE)
+        second["identifier"]="OAS-66"
+        second["metadata"]={**first["metadata"],
+              "fleet_target_issue":"66",
+              "fleet_allowed_path":"source/second.py",
+              "fleet_worker_repo":"boardreadyops/oc-test",
+              "fleet_worker_account":"boardreadyops"}
+        with tempfile.TemporaryDirectory() as td:
+            with patch.object(poller,"ready_issues",return_value=[first,second]),                 patch.object(poller.handoff,"read_issue",
+                     side_effect=lambda key:first if key=="OAS-14" else second),                 patch.object(poller,"controller_receipt",
+                     side_effect=lambda meta:Path(td)/"no-receipt"),                 patch("oc_fleet_pool.snapshot",return_value={
+                     "global_free":8,"per_account_limit":4}),                 patch.object(poller,"worker_slots",return_value=4) as slots,                 patch.object(poller,"dispatch_one",return_value="dispatched") as dispatch:
+                poller.poll(PROJECT,True,Path(td),max_parallel=8)
+                self.assertTrue(all(args.args[1]==4 for args in slots.call_args_list))
+                self.assertLessEqual(dispatch.call_count,2)
 
     def test_worker_slots_exactly_counts_busy_workflow_runs(self):
         sample=lambda total:MagicMock(stdout=__import__("json").dumps({

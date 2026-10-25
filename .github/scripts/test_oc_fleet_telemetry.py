@@ -120,10 +120,12 @@ class TelemetryTest(unittest.TestCase):
             def verifier(token):
                 if token != "valid":
                     raise ValueError("signed token required")
-                return "123","1"
+                return "oaslananka-dev/oc-test","123","1"
             server=ThreadingHTTPServer(("127.0.0.1",0),
                 make_handler(s,verifier,
-                             issue_validator=lambda issue: issue=="OAS-11"))
+                             issue_validator=lambda issue,repo,run: (
+                                 issue=="OAS-11" and repo=="oaslananka-dev/oc-test"
+                                 and run=="123")))
             thread=threading.Thread(target=server.serve_forever,daemon=True)
             thread.start()
             try:
@@ -173,11 +175,92 @@ class TelemetryTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_multica_issue("OAS-11")
 
+    def test_two_accounts_oidc_repo_and_issue_binding(self):
+        import os
+        from unittest.mock import MagicMock
+        from oc_fleet_telemetry_bridge import approved_worker_repos
+        allow="MakerParsDev/oc-test,boardreadyops/oc-test"
+        with patch.dict(os.environ,{"FLEET_TELEMETRY_WORKER_REPOS":allow}):
+            self.assertEqual(approved_worker_repos(),
+                             {"MakerParsDev/oc-test","boardreadyops/oc-test"})
+            for bad in ("", "MakerParsDev/oc-test,",
+                        "MakerParsDev/oc-test,MakerParsDev/oc-test",
+                        "MakerParsDev/oc-test,../other"):
+                with patch.dict(os.environ,
+                                {"FLEET_TELEMETRY_WORKER_REPOS":bad}):
+                    with self.assertRaises(ValueError):approved_worker_repos()
+            workspace="dacd00a3-eeb9-4f80-9c9e-773062880f87"
+            data={"identifier":"OAS-11","workspace_id":workspace,
+                  "status":"in_progress",
+                  "metadata":{"fleet_worker_repo":"boardreadyops/oc-test",
+                              "fleet_result":"worker_dispatched",
+                              "fleet_run_id":"123"}}
+            with patch.dict(os.environ,{"FLEET_MULTICA_WORKSPACE_ID":workspace}),                 patch("oc_fleet_telemetry_bridge.subprocess.run",
+                       return_value=MagicMock(stdout=json.dumps(data))):
+                self.assertTrue(validate_multica_issue(
+                    "OAS-11","boardreadyops/oc-test","123"))
+                for repo,run in (("MakerParsDev/oc-test","123"),
+                                 ("boardreadyops/oc-test","124")):
+                    with self.assertRaisesRegex(ValueError,"not bound"):
+                        validate_multica_issue("OAS-11",repo,run)
+
+    def test_receiver_repo_bound_storage_and_old_database_migration(self):
+        import sqlite3,os
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/"old.db"
+            db=sqlite3.connect(path)
+            db.execute("CREATE TABLE binding (run TEXT,attempt TEXT,issue TEXT,"
+                       "created INTEGER,comment_id TEXT,revision INTEGER,"
+                       "updated INTEGER DEFAULT 0,reported_seq INTEGER DEFAULT 0,"
+                       "PRIMARY KEY(run,attempt))")
+            db.commit();db.close()
+            with patch.dict(os.environ,{"FLEET_TELEMETRY_WORKER_REPOS":
+                         "oaslananka-dev/oc-test,boardreadyops/oc-test"}):
+                store=Store(path)
+                store.register("123","1","OAS-11","boardreadyops/oc-test")
+                with self.assertRaisesRegex(ValueError,"another"):
+                    store.register("123","1","OAS-11","oaslananka-dev/oc-test")
+                e={"run_id":"123","attempt":"1","seq":1,
+                   "kind":"step_start"}
+                with self.assertRaisesRegex(ValueError,"cross-repository"):
+                    store.ingest("123","1",[e],"oaslananka-dev/oc-test")
+                store.ingest("123","1",[e],"boardreadyops/oc-test")
+                result=store.summary("123","1")
+                self.assertEqual(result["repo"],"boardreadyops/oc-test")
+                self.assertIn("boardreadyops/oc-test/actions/runs/123",
+                              progress_text("123","1",result))
+
+    def test_oidc_verified_repository_is_not_untrusted_claim(self):
+        import sys,types,os
+        from oc_fleet_telemetry_bridge import verified_identity
+        valid={"repository":"boardreadyops/oc-test",
+               "workflow_ref":"boardreadyops/oc-test/.github/workflows/"
+                              "oc-fleet-worker.yml@refs/heads/main",
+               "ref":"refs/heads/main","event_name":"workflow_dispatch",
+               "run_id":"123","run_attempt":"1"}
+        fake=types.SimpleNamespace(
+            decode=lambda *a,**k: valid.copy())
+        with patch.dict(sys.modules,{"jwt":fake}),             patch("oc_fleet_telemetry_bridge.signing_keys",
+                   return_value=types.SimpleNamespace(
+                       get_signing_key_from_jwt=lambda x:types.SimpleNamespace(
+                           key="test-key"))),             patch.dict(os.environ,{"FLEET_TELEMETRY_WORKER_REPOS":
+                           "MakerParsDev/oc-test,boardreadyops/oc-test"}):
+            self.assertEqual(verified_identity("signed"),
+                             ("boardreadyops/oc-test","123","1"))
+            valid["workflow_ref"]="MakerParsDev/oc-test/.github/workflows/"
+            with self.assertRaisesRegex(ValueError,"untrusted"):
+                verified_identity("signed")
+            valid["repository"]="not-allowed/repo"
+            with self.assertRaisesRegex(ValueError,"untrusted"):
+                verified_identity("signed")
+
     def test_agent_observer_path_resolves_from_target_checkout(self):
         workflow = Path(__file__).resolve().parent.parent / "workflows" / "oc-fleet-worker.yml"
         script = workflow.read_text(encoding="utf-8")
         self.assertIn('python3 "$GITHUB_WORKSPACE/runner/.github/scripts/oc_fleet_telemetry.py"', script)
         self.assertNotIn('python3 runner/.github/scripts/oc_fleet_telemetry.py', script)
+        self.assertIn("Bind live telemetry to controller-verified task", script)
+        self.assertIn('oc_fleet_telemetry.py" register', script)
         self.assertIn('stage_status=("${PIPESTATUS[@]}")', script)
         self.assertIn('rc=${stage_status[0]}', script)
         self.assertIn('${stage_status[1]}', script)
@@ -186,7 +269,8 @@ class TelemetryTest(unittest.TestCase):
             s=Store(Path(tmp)/"events.sqlite")
             s.register("123","1","OAS-9")
             server=ThreadingHTTPServer(("127.0.0.1",0),
-                      make_handler(s,lambda tok: ("123","1") if tok=="valid" else ("999","1")))
+                      make_handler(s,lambda tok: ("oaslananka-dev/oc-test","123","1")
+                      if tok=="valid" else ("oaslananka-dev/oc-test","999","1")))
             runner=threading.Thread(target=server.serve_forever,daemon=True)
             runner.start()
             try:

@@ -18,6 +18,21 @@ ISSUER = "https://token.actions.githubusercontent.com"
 AUDIENCE = "ocfilo-telemetry"
 REPO = "oaslananka-dev/oc-test"
 WORKFLOW = REPO + "/.github/workflows/oc-fleet-worker.yml@refs/heads/main"
+REPO_RE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
+
+def approved_worker_repos():
+    # The receiver owns its own explicit allowlist; task text or unsigned HTTP
+    # payloads can NEVER authorize an additional worker repository.
+    raw = os.environ.get("FLEET_TELEMETRY_WORKER_REPOS", REPO)
+    values = [x.strip() for x in raw.split(",")]
+    if (not 1 <= len(values) <= 20
+            or any(not REPO_RE.fullmatch(x) or
+                   any(part in (".","..") or part.startswith(".")
+                       for part in x.split("/")) for x in values)
+            or len({x.casefold() for x in values}) != len(values)):
+        raise ValueError("Invalid receiver worker repository allowlist")
+    return frozenset(values)
+
 KINDS = {"step_start", "step_finish", "tool_use", "error"}
 KEYS = {"run_id","attempt","seq","kind","tool","status","tokens_input",
         "tokens_output","tokens_reasoning","cache_read","cache_write","cost_usd"}
@@ -39,14 +54,17 @@ def verified_identity(jwt_token):
     c = jwt.decode(jwt_token, key.key, algorithms=["RS256"],
                    audience=AUDIENCE, issuer=ISSUER,
                    options={"require":["exp","iat","iss","aud","sub"]}, leeway=20)
-    if (c.get("repository") != REPO or c.get("workflow_ref") != WORKFLOW
+    repo = c.get("repository")
+    if (repo not in approved_worker_repos()
+            or c.get("workflow_ref") !=
+               repo + "/.github/workflows/oc-fleet-worker.yml@refs/heads/main"
             or c.get("ref") != "refs/heads/main"
             or c.get("event_name") != "workflow_dispatch"):
         raise ValueError("untrusted GitHub workflow")
     run,attempt=str(c.get("run_id","")),str(c.get("run_attempt",""))
     if not re.fullmatch(r"[0-9]{1,20}",run) or not re.fullmatch(r"[1-9][0-9]{0,4}",attempt):
         raise ValueError("invalid attested run")
-    return run,attempt
+    return repo,run,attempt
 
 
 def validate_event(item,run,attempt):
@@ -89,6 +107,10 @@ class Store:
                 (run TEXT,attempt TEXT,seq INTEGER,kind TEXT,tool TEXT,
                  status TEXT,metrics TEXT, PRIMARY KEY(run,attempt,seq));
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(binding)")}
+            if "repo" not in columns:
+                db.execute("ALTER TABLE binding ADD COLUMN repo TEXT")
+                db.execute("UPDATE binding SET repo=? WHERE repo IS NULL", (REPO,))
 
     @contextmanager
     def db(self):
@@ -100,28 +122,30 @@ class Store:
         finally:
             conn.close()
 
-    def register(self,run,attempt,issue):
+    def register(self,run,attempt,issue,repo=REPO):
         if not re.fullmatch(r"[0-9]{1,20}",str(run)) or not re.fullmatch(r"[1-9][0-9]{0,4}",str(attempt)):
             raise ValueError("bad run identity")
         if not re.fullmatch(r"[A-Z][A-Z0-9-]{1,35}",issue):
             raise ValueError("bad Multica issue")
+        if repo not in approved_worker_repos():
+            raise ValueError("unapproved worker repository")
         with self.lock,self.db() as db:
-            old=db.execute("SELECT issue FROM binding WHERE run=? AND attempt=?",
+            old=db.execute("SELECT issue,repo FROM binding WHERE run=? AND attempt=?",
                            (str(run),str(attempt))).fetchone()
-            if old and old[0]!=issue:
-                raise ValueError("already bound to another issue")
-            db.execute("INSERT OR IGNORE INTO binding(run,attempt,issue,created)"
-                       " VALUES(?,?,?,?)",(str(run),str(attempt),issue,int(time.time())))
+            if old and (old[0]!=issue or old[1]!=repo):
+                raise ValueError("already bound to another issue or repository")
+            db.execute("INSERT OR IGNORE INTO binding(run,attempt,issue,created,repo)"
+                       " VALUES(?,?,?,?,?)",(str(run),str(attempt),issue,int(time.time()),repo))
             db.commit()
 
-    def ingest(self,run,attempt,events):
+    def ingest(self,run,attempt,events,repo=REPO):
         if not isinstance(events,list) or not 1<=len(events)<=16:
             raise ValueError("invalid event batch")
         with self.lock,self.db() as db:
-            row=db.execute("SELECT created FROM binding WHERE run=? AND attempt=?",
+            row=db.execute("SELECT created,repo FROM binding WHERE run=? AND attempt=?",
                            (run,attempt)).fetchone()
-            if not row or not 0<=int(time.time())-row[0]<=86400:
-                raise ValueError("unknown or expired run")
+            if not row or row[1]!=repo or not 0<=int(time.time())-row[0]<=86400:
+                raise ValueError("unknown, cross-repository or expired run")
             for ev in events:
                 seq,kind,tool,status,nums=validate_event(ev,run,attempt)
                 db.execute("INSERT OR IGNORE INTO event VALUES(?,?,?,?,?,?,?)",
@@ -130,7 +154,7 @@ class Store:
 
     def summary(self,run,attempt):
         with self.db() as db:
-            meta=db.execute("SELECT issue,comment_id,revision,updated FROM binding"
+            meta=db.execute("SELECT issue,comment_id,revision,updated,repo FROM binding"
                             " WHERE run=? AND attempt=?",(run,attempt)).fetchone()
             if not meta:return None
             rows=db.execute("SELECT seq,kind,metrics FROM event WHERE run=? AND attempt=?"
@@ -141,7 +165,7 @@ class Store:
                 data=json.loads(raw)
                 for key in metrics:metrics[key]+=data.get(key,0)
         return {"issue":meta[0],"comment":meta[1],"revision":meta[2],
-                "updated":meta[3],"events":len(rows),
+                "updated":meta[3],"repo":meta[4],"events":len(rows),
                 "steps":sum(x[1]=="step_finish" for x in rows),
                 "tools":sum(x[1]=="tool_use" for x in rows),**metrics}
 
@@ -150,7 +174,7 @@ class Store:
             return db.execute("SELECT run,attempt FROM binding WHERE updated<?"
                               " AND EXISTS (SELECT 1 FROM event WHERE event.run=binding.run"
                               " AND event.attempt=binding.attempt AND event.seq>binding.reported_seq)",
-                              (int(time.time())-45,)).fetchall()
+                              (int(time.time())-15,)).fetchall()
 
     def set_comment(self,run,attempt,comment_id,revision):
         with self.lock,self.db() as db:
@@ -169,13 +193,15 @@ def progress_text(run,attempt,item):
             f"Güvenli olay: {item['events']}, adım: {item['steps']}, araç olayı: {item['tools']}\n"
             f"Input token: {item['tokens_input']}, output token: {item['tokens_output']}\n"
             f"Modelin bildirdiği maliyet (USD): {item['cost_usd']:.5f}\n\n"
-            f"https://github.com/{REPO}/actions/runs/{run}\n\n"
+            f"https://github.com/{item.get('repo',REPO)}/actions/runs/{run}\n\n"
             "Bu izleme kaydı Multica native execution değildir.")
 
 
 def publish(store,run,attempt):
     item=store.summary(run,attempt)
     if not item or item["events"]==0:return
+    if item["repo"] not in approved_worker_repos():
+        raise ValueError("Binding from unapproved repository")
     with tempfile.TemporaryDirectory(prefix="oc-telemetry-") as tmp:
         body=Path(tmp)/"progress.txt"
         body.write_text(progress_text(run,attempt,item),encoding="utf-8")
@@ -192,7 +218,7 @@ def publish(store,run,attempt):
         store.set_comment(run,attempt,data["id"],data["revision"])
 
 
-def validate_multica_issue(issue):
+def validate_multica_issue(issue,repo=None,run=None):
     """Fail closed unless this issue belongs to the configured Multica workspace."""
     workspace = os.environ.get("FLEET_MULTICA_WORKSPACE_ID", "")
     if (not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", workspace)
@@ -205,6 +231,13 @@ def validate_multica_issue(issue):
     if (data.get("identifier") != issue or data.get("workspace_id") != workspace
             or data.get("status") in ("done","cancelled")):
         raise ValueError("issue not active in the approved workspace")
+    if repo is not None:
+        meta = data.get("metadata") or {}
+        if (not isinstance(meta,dict) or meta.get("fleet_worker_repo") != repo
+                or str(meta.get("fleet_run_id")) != str(run)
+                or meta.get("fleet_result") != "worker_dispatched"
+                or data.get("status") != "in_progress"):
+            raise ValueError("run not bound to the requested Multica task")
     return True
 
 
@@ -222,18 +255,18 @@ def make_handler(store,verifier,issue_validator=validate_multica_issue):
                 if not 1<=length<=65536:raise ValueError("bad request size")
                 header=self.headers.get("Authorization","")
                 if not header.startswith("Bearer "):raise ValueError("missing OIDC")
-                run,attempt=verifier(header[7:])
+                repo,run,attempt=verifier(header[7:])
                 data=json.loads(self.rfile.read(length))
                 if not isinstance(data,dict):
                     raise ValueError("invalid payload")
                 if self.path=="/register":
-                    if set(data)!={"issue"} or not issue_validator(data["issue"]):
+                    if set(data)!={"issue"} or not issue_validator(data["issue"],repo,run):
                         raise ValueError("unapproved Multica issue")
-                    store.register(run,attempt,data["issue"])
+                    store.register(run,attempt,data["issue"],repo)
                 else:
                     if set(data)!={"events"}:
                         raise ValueError("unrecognised payload")
-                    store.ingest(run,attempt,data["events"])
+                    store.ingest(run,attempt,data["events"],repo)
                 self.send_response(200);self.end_headers();self.wfile.write(b'{"ok":true}')
             except Exception:  # includes invalid signed JWT / JWKS fetch errors; no details exposed
                 self.send_error(403,"rejected")
@@ -249,6 +282,7 @@ def main():
     reg=sub.add_parser("register")
     reg.add_argument("--run",required=True);reg.add_argument("--attempt",default="1")
     reg.add_argument("--issue",required=True)
+    reg.add_argument("--repo",default=REPO)
     srv=sub.add_parser("serve")
     srv.add_argument("--port",type=int,default=18098)
     srv.add_argument("--multica",action="store_true")
@@ -257,7 +291,7 @@ def main():
     path=Path(args.db);path.parent.mkdir(parents=True,exist_ok=True)
     store=Store(path)
     if args.mode=="register":
-        store.register(args.run,args.attempt,args.issue);print("Run registered");return
+        store.register(args.run,args.attempt,args.issue,args.repo);print("Run registered");return
     if args.multica:
         def report():
             while True:
