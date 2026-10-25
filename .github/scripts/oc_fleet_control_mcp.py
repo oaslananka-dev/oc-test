@@ -294,6 +294,7 @@ def fleet_create_issue(repo: str, title: str, body: str,
     need(type(body) is str and 50<=len(body)<=7000,
          "Issue body must specify bounded acceptance criteria")
     import oc_fleet_issue as existing_worker
+    existing_worker.require_public_issue_copy(title,body)
     existing_worker.require_approved_target(repo)
     target_env=existing_worker.identity(repo.split("/")[0])
     output=cmd(["gh","issue","create","-R",repo,
