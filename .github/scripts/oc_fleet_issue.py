@@ -72,6 +72,8 @@ def repo_issue(repo,issue,env,*,external_pr_only=False):
             "GitHub issue must be open")
     title=obj.get("title","")
     body=obj.get("body") or ""
+    if external_pr_only:
+        require_public_issue_copy(title,body)
     prompt=f"Resolve GitHub issue #{issue} in {repo}.\nTitle: {title}\n\n{body}"
     require(10<=len(prompt)<=8000,"issue description outside 10..8000 chars")
     sha=cmd(["gh","api",f"repos/{repo}/git/ref/heads/{branch}",
@@ -296,24 +298,50 @@ def isolated_quality_gates(work, sha, patch_file, paths, integrations, repo, env
         quality_gates(scan,paths,integrations,repo)
     finally:
         cmd(["git","-C",str(work),"worktree","remove","--force",str(scan)],env,ok=False)
+# Never publish internal orchestration identifiers into external repository
+# descriptions. The source of truth for operations stays in the private
+# controller project, not public GitHub issue/PR/commit narratives.
+INTERNAL_PUBLIC_COPY = re.compile(
+    r"(?i)(?:\b(?:multica|oc[-_ ]?fleet|oc[-_ ]?test|makerparsdev|boardreadyops|"
+    r"autopilot|opencode|doppler_token|worker_account|worker_repo)\b|"
+    r"\bOAS-[1-9][0-9]*\b|opencode/[a-z0-9._-]+|"
+    r"github\.com/(?:MakerParsDev|boardreadyops)/oc-test)"
+)
+PUBLIC_TEST_ONLY_SCOPE = re.compile(r"(?i)^(?:playground/fleet/|.*(?:/|^)(?:fleet-acceptance|worker-acceptance)[^/]*)")
+
+def require_public_issue_copy(title, body):
+    """Reject internal runbooks/identities in publicly created issues."""
+    require(isinstance(title, str) and isinstance(body, str)
+            and not INTERNAL_PUBLIC_COPY.search(title + "\n" + body),
+            "Public GitHub issue text must describe only repository behavior")
+
+
 PUBLIC_TYPES = {"fix", "feat", "test", "docs", "refactor", "perf", "ci", "build", "chore"}
 INTERNAL_TERMS = re.compile(r"\b(?:oc-test|opencode|multica|fleet|autopilot|worker|agent|pilot)\b",
                             re.IGNORECASE)
 
 def public_change_metadata(manifest, paths):
     """Produce normal repository-facing copy without execution internals."""
+    require(all(isinstance(p,str) and not PUBLIC_TEST_ONLY_SCOPE.search(p)
+                for p in paths),
+            "Refusing to publish internal acceptance files into a public repository")
     found=re.search(r"(?m)^Title: ([^\r\n]+)",manifest["prompt"])
     original=found.group(1).strip() if found else ""
     title=re.sub(r"\s*\([^()]*\b(?:opencode|oc-test|multica|fleet|worker|agent|pilot)\b[^()]*\)\s*$",
                  "",original,flags=re.IGNORECASE).strip()
     title=re.sub(r"^(?:TEST|PILOT)\s*:\s*","",title,flags=re.IGNORECASE)
     title=re.sub(r"\s+"," ",title).strip(" .")
+    require(not INTERNAL_PUBLIC_COPY.search(original),
+            "Public PR source issue title contains internal execution details")
     if not title or INTERNAL_TERMS.search(title) or len(title)>88:
         filename=Path(paths[0]).stem.replace("_"," ").replace("-"," ")
         title=("test: improve "+filename+" coverage" if paths[0].startswith("tests/")
                else "fix: address issue "+manifest["issue_key"].split("-")[-1])
-    prefix=title.partition(":")[0].lower()
-    if prefix not in PUBLIC_TYPES or ": " not in title:
+    # Respect ordinary Conventional Commit scopes, e.g. fix(python): ...,
+    # rather than producing awkward "fix: fix(python): ..." titles.
+    conventional=re.fullmatch(r"(fix|feat|test|docs|refactor|perf|ci|build|chore)(\([a-z0-9_-]+\))?(!)?: .+",
+                             title,flags=re.IGNORECASE)
+    if conventional is None:
         title=("test: " if all(x.startswith("tests/") for x in paths) else "fix: ")+title
     title=title[:100].rstrip()
     issue_number=manifest["issue_key"].split("-")[-1]

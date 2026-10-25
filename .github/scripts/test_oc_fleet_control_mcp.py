@@ -167,6 +167,15 @@ class Tests(unittest.TestCase):
    self.assertFalse(val["apply"])
    self.assertNotIn("--apply",fn.call_args.args[1])
 
+ def test_issue_creation_rejects_internal_copy_before_git_io(self):
+  with patch.object(c,"cmd") as transport:
+   with self.assertRaisesRegex(ValueError,"Public GitHub"):
+    c.fleet_create_issue("oaslananka/adxl355",
+                         "fix: check SPI transfer frame",
+                         "A transfer frame must be exact size. Report OAS-44 and the internal Fleet status.",
+                         "oaslananka/adxl355")
+   transport.assert_not_called()
+
  def test_issue_creation_requires_allowed_repo_and_exact_confirmation(self):
   with patch.object(c,"cmd") as runner:
    with self.assertRaisesRegex(ValueError,"confirmation"):

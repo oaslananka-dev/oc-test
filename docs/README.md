@@ -30,6 +30,7 @@ that every capability is enabled in production.
 
 - [GitHub issue task contract](oc-fleet-github-issue.md)
 - [Trusted publisher](oc-fleet-publisher.md)
+- [Public repository issue/PR copy boundary](public-repository-issue-pr-hygiene.md)
 - [Initial worker pilot](oc-fleet-pilot.md)
 - [CI review triage](oc-fleet-ci-review-triage.md)
 - [Scoped production repair](oc-fleet-scoped-production-repair.md)

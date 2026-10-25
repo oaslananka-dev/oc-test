@@ -159,12 +159,33 @@ class IssueControllerTests(unittest.TestCase):
             paths, _ = controller.scoped_patch(repo,["tests/test_hashing.py"])
             self.assertEqual(paths,["tests/test_hashing.py"])
 
+    def test_external_issue_copy_rejects_controller_details(self):
+        good="Fix ADXL355 SPI register validation"
+        body="The SPI adapter silently accepts truncated transfer frames. Add a regression test."
+        controller.require_public_issue_copy(good,body)
+        for bad in ("Multica OAS-30", "MakerParsDev/oc-test",
+                    "boardreadyops/oc-test", "oc-fleet worker",
+                    "opencode/big-pickle", "DOPPLER_TOKEN",
+                    "worker_account=boardreadyops"):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError,"Public GitHub"):
+                controller.require_public_issue_copy(good,body+" "+bad)
+
+    def test_external_pr_rejects_internal_test_fixture_path(self):
+        args=Args()
+        manifest=controller.manifest_for(
+            "oaslananka/nerlex",51,"a"*40,"main",
+            "Title: test: add deterministic regression fixture\n\nTests must pass.",
+            args,["oaslananka/nerlex"])
+        for bad in ("playground/fleet/test.json","playground/Fleet/test.json"):
+            with self.subTest(path=bad),self.assertRaisesRegex(ValueError,"internal acceptance"):
+                controller.public_change_metadata(manifest,[bad])
+
     def test_public_pr_metadata_omits_execution_details(self):
         args=Args()
         manifest=controller.manifest_for(
             "oaslananka/nerlex",26,"a"*40,"main",
             "Resolve GitHub issue #26 in oaslananka/nerlex.\n"
-            "Title: test: canonical JSON hashing edge cases (temporary OpenCode fleet pilot)\n"
+            "Title: test: canonical JSON hashing edge cases\n"
             "Create regression tests.",args,["oaslananka/nerlex"])
         title,body,branch=controller.public_change_metadata(
             manifest,["tests/test_hashing.py"])
@@ -176,16 +197,22 @@ class IssueControllerTests(unittest.TestCase):
             self.assertNotRegex(public_text.lower(),
                 r"oc-test|opencode|multica|worker|agent|fleet|pilot|github.com/.*/actions/runs")
 
-    def test_public_pr_falls_back_when_issue_is_internal(self):
+    def test_public_pr_refuses_internal_issue_title(self):
         args=Args()
         m=controller.manifest_for("oaslananka/nerlex",50,"a"*40,"main",
             "Title: OpenCode worker pilot for code change\n\nPlease update tests.",
             args,["oaslananka/nerlex"])
-        title,body,branch=controller.public_change_metadata(
-            m,["tests/test_hashing.py"])
-        self.assertEqual(title,"test: improve test hashing coverage")
-        self.assertIn("Closes #50",body)
-        self.assertNotIn("worker",title.lower())
+        with self.assertRaisesRegex(ValueError,"internal execution"):
+            controller.public_change_metadata(m,["tests/test_hashing.py"])
+
+    def test_public_pr_keeps_normal_scoped_conventional_title(self):
+        m=controller.manifest_for("oaslananka/nerlex",50,"a"*40,"main",
+             "Title: fix(python): validate truncated SPI frames\n\nAdd tests.",
+             Args(),["oaslananka/nerlex"])
+        title,body,_=controller.public_change_metadata(
+             m,["python/src/adxl355/spi.py"])
+        self.assertEqual(title,"fix(python): validate truncated SPI frames")
+        self.assertNotIn("fix: fix",body)
 
     def test_manifest_ok(self):
         m=controller.manifest_for("oaslananka-dev/oc-test",12,"a"*40,
