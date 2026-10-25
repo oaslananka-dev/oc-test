@@ -1,0 +1,19 @@
+Observations about the repository Python scripts
+
+1. All Python lives in one directory, .github/scripts/ (67 files, ~13.8k lines): 35
+   implementation modules plus 32 unittest files named test_<module>.py. Two
+   families coexist - oc_fleet_* for GitHub fleet/issue orchestration and
+   ocfilo_* for the bounded OpenCode F1/F2 runs. Everything is stdlib-only
+   except one lazy "import jwt" inside oc_fleet_telemetry_bridge.py.
+
+2. The F2 chain (ocfilo_f2_plan.py -> ocfilo_f2_sched.py -> ocfilo_f2_dag.py) is
+   offline and fail-closed: manifests are checked against strict field
+   whitelists, type(value) is not int checks, a free-model allow-list, disjoint
+   single-file write scopes under playground/, and cycle detection. Anything
+   unexpected raises ValueError, which main() turns into exit code 2.
+
+3. ocfilo_f2_pilot.py enforces the runtime sandbox contract: it pins the
+   checkout SHA plus run/attempt provenance, hashes opencode.json to detect
+   CONFIG_TAMPERED, and inspects git status --porcelain so any write outside the
+   single assigned file is rejected as SCOPE_VIOLATION (with NO_CHANGE and
+   OUTPUT_INVALID for empty, oversized or binary output).
