@@ -109,6 +109,25 @@ jobs:
           token: ${{ secrets.FLEET_CHECKOUT_TOKEN || github.token }}
           path: target
           persist-credentials: false
+      # The controller sets the trusted run receipt/issue status shortly
+      # after workflow_dispatch. Validate-phase registration can race it;
+      # repeat after checkout and before starting the coding model.
+      - name: Bind live telemetry to controller-verified task
+        if: fromJSON(inputs.manifest_json).multica_issue
+        continue-on-error: true
+        env:
+          FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}
+          FLEET_MULTICA_ISSUE: ${{ fromJSON(inputs.manifest_json).multica_issue }}
+        run: |
+          set -euo pipefail
+          test -n "$FLEET_TELEMETRY_URL" || exit 0
+          for attempt in 1 2 3; do
+            if python3 "$GITHUB_WORKSPACE/runner/.github/scripts/oc_fleet_telemetry.py" register "$FLEET_MULTICA_ISSUE"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Telemetry registration unavailable; coding task unaffected.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/setup-node@v5
         with:
           node-version: '24'
@@ -360,6 +379,22 @@ jobs:
       - uses: actions/checkout@v5
         with:
           persist-credentials: false
+      - name: Bind telemetry-only probe to reviewed Multica task
+        if: fromJSON(inputs.manifest_json).multica_issue
+        continue-on-error: true
+        env:
+          FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}
+          FLEET_MULTICA_ISSUE: ${{ fromJSON(inputs.manifest_json).multica_issue }}
+        run: |
+          set -euo pipefail
+          test -n "$FLEET_TELEMETRY_URL" || exit 0
+          for attempt in 1 2 3; do
+            if python3 .github/scripts/oc_fleet_telemetry.py register "$FLEET_MULTICA_ISSUE"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo 'Probe registration unavailable; no agent started.' >> "$GITHUB_STEP_SUMMARY"
       - name: Verify signed event ingestion without a model
         env:
           FLEET_TELEMETRY_URL: ${{ needs.validate.outputs.telemetry_url }}

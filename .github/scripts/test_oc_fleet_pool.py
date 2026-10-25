@@ -86,8 +86,25 @@ class WorkerPoolTests(unittest.TestCase):
                  v for v in workers if v["repo"]==repo)):
             out=pool.choose("oaslananka/adxl355",99)
             self.assertEqual(out["account"],"boardreadyops")
-            self.assertEqual(out["global_free"],0)
-            self.assertEqual(pool.global_slots(),0)
+            self.assertEqual(out["global_free"],4)
+            self.assertEqual(pool.global_slots(),4)
+
+    def test_global_cap_uses_registered_count_and_bounded_overrides(self):
+        workers=[{"repo":"MakerParsDev/oc-test","account":"MakerParsDev","busy":0},
+                 {"repo":"boardreadyops/oc-test","account":"boardreadyops","busy":0}]
+        with patch.object(pool,"registered",return_value=[w["repo"] for w in workers]),             patch.object(pool,"probe",side_effect=lambda repo:next(
+                 dict(w) for w in workers if w["repo"]==repo)):
+            result=pool.snapshot()
+            self.assertEqual(result["global_limit"],8)
+            self.assertEqual(result["global_free"],8)
+            self.assertEqual([w["limit"] for w in result["workers"]],[4,4])
+            with patch.dict("os.environ",{"FLEET_GLOBAL_WORKERS":"6"}):
+                self.assertEqual(pool.snapshot()["global_limit"],6)
+            with patch.dict("os.environ",{"FLEET_PER_ACCOUNT_WORKERS":"2"}):
+                self.assertEqual(pool.snapshot()["global_limit"],4)
+            for limit in ("0","-1","21","999","bad"):
+                with patch.dict("os.environ",{"FLEET_GLOBAL_WORKERS":limit}):
+                    with self.assertRaises(ValueError):pool.snapshot()
 
     def test_distinct_issues_spread_on_tied_owners(self):
         workers=[{"repo":"MakerParsDev/oc-test","account":"MakerParsDev","busy":0},

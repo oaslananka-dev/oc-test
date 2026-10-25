@@ -255,9 +255,12 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
     # Read-only plans do not query worker pools or mutate reservation state.
     if execute:
         import oc_fleet_pool
-        global_available = min(max_parallel, oc_fleet_pool.global_slots())
+        state = oc_fleet_pool.snapshot()
+        global_available = min(max_parallel, state["global_free"])
+        per_account_limit = state["per_account_limit"]
     else:
         global_available = max_parallel
+        per_account_limit = max_parallel
     # Only inspect active reservations when there is a genuinely new task.
     # Plan mode and already-claimed/received work never make this extra query.
     occupied = None if execute else []
@@ -296,7 +299,8 @@ def poll(project, execute, claim_dir, max_parallel=1, dispatch_handler=None):
                 print("SKIP_GLOBAL_CAPACITY", key, flush=True)
                 continue
             if worker_repo not in worker_available:
-                worker_available[worker_repo]=worker_slots(worker_repo,max_parallel)
+                worker_available[worker_repo]=worker_slots(
+                    worker_repo, min(max_parallel, per_account_limit))
             if worker_available[worker_repo] <= 0:
                 print("SKIP_WORKER_AT_CAPACITY",key,worker_repo,flush=True)
                 continue
